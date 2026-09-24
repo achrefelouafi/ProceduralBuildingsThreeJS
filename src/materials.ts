@@ -18,7 +18,7 @@ import {
   MeshStandardMaterial, RepeatWrapping, SRGBColorSpace, Texture, TextureLoader, Vector3, ClampToEdgeWrapping,
 } from "three";
 
-interface TriplanarSpec {
+export interface TriplanarSpec {
   tex: string; // public/assets/tex/<tex>_color.jpg + <tex>_rd.png
   scale: number; // Vector Math SCALE on Geometry.Position
   tint: [number, number, number]; // Mix (MULTIPLY) B color
@@ -191,7 +191,8 @@ function loadTex(url: string, srgb: boolean, repeat = true): Promise<Texture> {
   return p;
 }
 
-async function triplanar(name: string, spec: TriplanarSpec, base: string): Promise<MeshStandardMaterial> {
+/** world-space triplanar PBR material — the building surfaces, and the studio floor */
+export async function triplanar(name: string, spec: TriplanarSpec, base: string): Promise<MeshStandardMaterial> {
   const [color, rd] = await Promise.all([
     loadTex(`${base}tex/${spec.tex}_color.jpg`, true),
     loadTex(`${base}tex/${spec.tex}_rd.png`, false),

@@ -30,7 +30,7 @@ GUI folders:
   Ornamented Panels), detail seed, detail depth.
 - **interiors**: room / curtain visibility, room seed, max room depth,
   curtain seed, no-curtain and closed-curtain chances, room brightness.
-- **environment**, **snow**, **rain**: unchanged (see below).
+- **🎬 lighting set**, **🎥 camera**, **✨ post**, **snow**, **rain**: see below.
 
 ## How the port works
 
@@ -62,25 +62,38 @@ GUI folders:
   of apartment photos (`tex/interiors.jpg`), per-room offset, mirroring, and warm
   "lamps on" tint.
 
-## Environment & look
+## Cinematic lighting set
 
-The building stands on a stylized floating **diorama pedestal** that resizes with
-it: grass top, soil sides, a plaza slab and curb under the footprint, and
-deterministic low-poly trees, bushes and street lamps. Everything is generated in
-[src/environment.ts](src/environment.ts).
+The building stands on an endless studio stage: a dark asphalt floor with a
+light pool around the subject, a stone sidewalk plinth, and a cyclorama backdrop
+that melts into the haze ([src/studio.ts](src/studio.ts)).
 
-- **Time-of-day presets** (environment folder): *golden hour* (default), *day*,
-  and *night*. Each one drives the gradient sky dome, fog, the light rig, clouds,
-  street-lamp glow, exposure and the post grade. At night the room interiors
-  carry the facade.
-- **Cinematic post stack** ([src/postfx.ts](src/postfx.ts)): bloom → tone map →
-  film grade.
-- **Snow** ([src/snow.ts](src/snow.ts), [src/snowAccum.ts](src/snowAccum.ts)):
-  falling flakes plus an accumulation shell pass that shares the building's
-  instance buffers.
-- **Rain** ([src/rain.ts](src/rain.ts), [src/wet.ts](src/wet.ts)): falling
-  streaks plus wetness injected into the building materials. `applyWet` chains
-  onto the triplanar material hooks.
+- **Moods**: *Studio*, *Golden Hour*, *Blue Hour*, *Midnight Noir*,
+  *Overcast*, *Storm*. Each is a complete "Look": key / fill / rim lights (color,
+  intensity, azimuth, elevation, shadow softness), hemisphere bounce, IBL, facade
+  uplights, room brightness, backdrop gradient + glow, height haze, bloom and
+  grade. Switching moods crossfades every value, and every value is editable live
+  under **🎬 lighting set**.
+- **Light rig**: key (directional, 4k soft PCF shadows fitted to the building,
+  long enough for a low sun), fill, a rim spot with an optional **volumetric
+  beam**, hemisphere bounce, four grazing **facade uplights**, and **lightning**
+  strikes while it rains.
+- **Height fog**: three's fog chunks are patched with an analytic exponential
+  height fog. It pools on the ground and thins towards the roof, and every
+  material gets it.
+- **Post** ([src/postfx.ts](src/postfx.ts)): GTAO ambient occlusion (glass,
+  curtains, particles and the beam are excluded), depth of field with autofocus
+  on the orbit target, bloom, ACES, and a film grade (white balance, split
+  toning, contrast, saturation, chromatic aberration, vignette, grain, animated
+  letterbox 1.85 / 2.39 / 2.76 : 1).
+- **Camera** ([src/shots.ts](src/shots.ts)): *Hero ¾*, *Street level*,
+  *Worm's-eye*, *Aerial*, *Facade detail* and *Profile* are framed from the live
+  building size (and the letterbox) and flown to with an eased dolly. Also: field
+  of view and auto-orbit. Grabbing the camera cancels a move.
+- **Weather**: snow (flakes + accumulation shells on the building, floor and
+  sidewalk) and rain (streaks + wet, puddled, rippling surfaces on the building
+  and the stage) — [src/snow.ts](src/snow.ts), [src/snowAccum.ts](src/snowAccum.ts),
+  [src/rain.ts](src/rain.ts), [src/wet.ts](src/wet.ts).
 
 ## Blender tooling (Blender 5.1)
 

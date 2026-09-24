@@ -48,11 +48,6 @@ function uintTo01(k: number): number {
   return f32(f32(k) / 4294967296);
 }
 
-/** hash mapped to [0,1] — used for deterministic environment scatter */
-export function hash01(id: number, seed: number): number {
-  return hashInt2d(id, seed) / 4294967295;
-}
-
 /** Hash Value node (Vector): noise::hash(noise::hash_float(v), seed), as a signed int */
 export function hashValueVec3(x: number, y: number, z: number, seed: number): number {
   return hashInt2d(hashInt3d(floatBits(x), floatBits(y), floatBits(z)), seed) | 0;

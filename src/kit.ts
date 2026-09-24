@@ -77,7 +77,10 @@ export class Kit {
         matrices.forEach((m, i) => im.setMatrixAt(i, m));
         im.instanceMatrix.needsUpdate = true;
         im.computeBoundingSphere();
-        if (glass) im.renderOrder = 2; // after the curtains behind it
+        if (glass) {
+          im.renderOrder = 2; // after the curtains behind it
+          im.userData.noAO = true; // transparent: must not occlude the AO pass
+        }
         group.add(im);
 
         // snow shell pass: same geometry, SAME instanceMatrix buffer — only the

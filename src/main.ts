@@ -1,6 +1,6 @@
 import {
-  ACESFilmicToneMapping, BufferAttribute, BufferGeometry, Clock, Group, Material, Mesh,
-  PerspectiveCamera, Scene, SRGBColorSpace, Vector3, WebGLRenderer,
+  ACESFilmicToneMapping, BufferAttribute, BufferGeometry, Group, Material, Mesh,
+  PerspectiveCamera, Scene, SRGBColorSpace, Timer, Vector3, WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import GUI from "lil-gui";
@@ -9,15 +9,16 @@ import { generateBuilding } from "./generator";
 import { generateCurtains, generateRooms } from "./interiors";
 import { createMaterials, type BuildingMaterials } from "./materials";
 import { Kit } from "./kit";
-import { Environment, type PresetName } from "./environment";
-import { PostFX } from "./postfx";
+import { SIDEWALK, Studio, type Mood } from "./studio";
+import { LETTERBOX, PostFX, type Letterbox } from "./postfx";
+import { frameShot, SHOTS, ShotDirector, type Shot } from "./shots";
 import { createSnow } from "./snow";
 import { createSnowAccumUniforms, createSnowShellMaterial } from "./snowAccum";
 import { createRain } from "./rain";
 import { createWetUniforms, applyWet } from "./wet";
 
 const app = document.getElementById("app")!;
-const renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+const renderer = new WebGLRenderer({ antialias: false, powerPreference: "high-performance" }); // MSAA lives in the composer
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = ACESFilmicToneMapping;
@@ -26,25 +27,28 @@ app.appendChild(renderer.domElement);
 
 const scene = new Scene();
 
-const camera = new PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 900);
-camera.position.set(12, 7, 14);
+const camera = new PerspectiveCamera(32, innerWidth / innerHeight, 0.2, 1000);
+camera.position.set(30, 10, 45);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.maxPolarAngle = Math.PI * 0.55; // just below the pedestal rim
+controls.maxPolarAngle = Math.PI * 0.51; // stay above the stage floor
 controls.minDistance = 2;
-controls.maxDistance = 220;
+controls.maxDistance = 300;
 
-// stylized diorama environment: sky dome, clouds, pedestal, trees, lamps, presets
-const env = new Environment(scene, renderer);
+// cinematic post: GTAO → DoF → bloom → tone map → film grade
+const post = new PostFX(renderer, scene, camera);
+// the lighting set: backdrop, stage, light rig, height fog, moods
+const studio = new Studio(scene, renderer, post);
+const director = new ShotDirector(camera, controls);
+controls.addEventListener("start", () => director.stop()); // grabbing the camera cancels a move
 
-// Blender is Z-up: the generator works in Blender space inside a rotated root.
-// The plaza slab top sits at y = 0.11 — the building stands on it.
-const PLAZA_TOP = 0.11;
+// Blender is Z-up: the generator works in Blender space inside a rotated root,
+// standing on the sidewalk plinth
 const root = new Group();
 root.rotation.x = -Math.PI / 2;
-root.position.y = PLAZA_TOP;
+root.position.y = SIDEWALK;
 scene.add(root);
 
 const params: BuildingParams = defaultParams();
@@ -57,11 +61,11 @@ let building: Group | null = null;
 const snowShared = { uTime: { value: 0 }, uWind: { value: new Vector3(2, 0, 1) } };
 const accumU = createSnowAccumUniforms(snowShared.uTime);
 const snowShellMaterial = createSnowShellMaterial(accumU);
-env.setSnowShellMaterial(snowShellMaterial); // plaza/curb get snow caps too
 const snow = createSnow({ camera, shared: snowShared });
 snow.mesh.visible = false;
 snow.material.depthTest = false; // draw flakes over the building instead of being occluded
 snow.mesh.renderOrder = 10;
+snow.mesh.userData.noAO = true;
 scene.add(snow.mesh);
 
 const snowState = { enabled: false, density: 0.5 };
@@ -80,19 +84,19 @@ function applySnowEnabled(v: boolean): void {
   snow.mesh.visible = v;
   const shell = building?.getObjectByName("snowShell");
   if (shell) shell.visible = v;
-  if (env.snowShell) env.snowShell.visible = v;
+  studio.snowShell.visible = v; // floor + sidewalk caps
   gui.controllersRecursive().forEach(c => c.updateDisplay());
 }
 
 // ---- rain: falling streaks (world space) + in-place wet accumulation on the ----
-// building materials (no shell geometry — the wet shader is injected straight into
-// the materials via onBeforeCompile, keyed off WORLD up)
+// building + stage materials (the wet shader is injected into the materials)
 const rainShared = { uTime: { value: 0 }, uWind: { value: new Vector3(3, 0, 1) }, uLightning: { value: 0 } };
 const wetU = createWetUniforms(rainShared.uTime, rainShared.uWind);
 const rain = createRain({ camera, shared: rainShared });
 rain.mesh.visible = false;
 rain.material.depthTest = false;
 rain.mesh.renderOrder = 10;
+rain.mesh.userData.noAO = true;
 scene.add(rain.mesh);
 
 const rainState = { enabled: false, density: 0.4 };
@@ -108,18 +112,8 @@ function applyRainEnabled(v: boolean): void {
     applySnowEnabled(false);
   }
   rain.mesh.visible = v;
-  wetU.uWet.value = v ? 1 : 0; // master gate: building dries out when rain is off
+  wetU.uWet.value = v ? 1 : 0; // master gate: everything dries out when rain is off
   gui.controllersRecursive().forEach(c => c.updateDisplay());
-}
-
-// cinematic post-processing: bloom -> tone map -> film grade
-const post = new PostFX(renderer, scene, camera);
-
-function frameCamera(moveCamera: boolean): void {
-  const home = env.cameraHome(buildingSize(params), camera);
-  controls.target.copy(home.target);
-  if (moveCamera) camera.position.copy(home.pos);
-  controls.update();
 }
 
 function meshFrom(attrs: Record<string, number[]>, index: number[], material: Material): Mesh {
@@ -156,7 +150,7 @@ function regenerate(): void {
 
   const b = generateBuilding(params);
   building = kit.buildGroup(b.instances);
-  // the .blend building spans x ∈ [0, W], y ∈ [0, L] — center it on the plaza
+  // the .blend building spans x ∈ [0, W], y ∈ [0, L] — center it on the stage
   building.position.set(-b.width / 2, -b.length / 2, 0);
 
   // zinc roof cap + its snow shell (shares geometry, extruded by the snow shader)
@@ -178,16 +172,45 @@ function regenerate(): void {
   curtains.name = "curtains";
   curtains.visible = view.curtains;
   curtains.renderOrder = 1; // behind the glass (renderOrder 2)
+  curtains.userData.noAO = true;
   building.add(curtains);
 
   root.add(building);
   applySnowEnabled(snowState.enabled); // new snowShell group starts hidden
-  env.fit(buildingSize(params)); // resize the diorama + shadow frustum
-  frameCamera(false);
+  studio.frame(buildingSize(params)); // plinth, light rig + shadow frustum
+}
+
+let viewW = 0, viewH = 0; // last applied viewport size (see fitViewport)
+
+// ---- camera / lens ----
+const cam = {
+  shot: "Hero ¾" as Shot,
+  autoOrbit: true,
+  orbitSpeed: 0.35,
+  fov: 32,
+  letterbox: "2.39 : 1" as Letterbox,
+  dof: false,
+  autofocus: true,
+  aperture: 0.0008,
+  maxBlur: 0.008,
+  chroma: 0.0018,
+};
+controls.autoRotate = cam.autoOrbit;
+controls.autoRotateSpeed = cam.orbitSpeed;
+post.letterbox = LETTERBOX[cam.letterbox];
+
+function goShot(shot: Shot, seconds = 2.4): void {
+  cam.shot = shot;
+  const lb = LETTERBOX[cam.letterbox];
+  const aspect = viewW && viewH ? viewW / viewH : 16 / 9; // hidden viewport: assume 16:9
+  const visible = lb > 0 ? Math.min(1, aspect / lb) : 1;
+  const f = frameShot(shot, buildingSize(params), visible);
+  cam.fov = f.fov;
+  director.go(f, seconds);
 }
 
 // ---- GUI ----
-const gui = new GUI({ title: "building configurator" });
+const gui = new GUI({ title: "haussmann building · lighting set" });
 
 // the FR_Procedural_Building modifier inputs (same names / ranges as the .blend)
 const fBuild = gui.addFolder("building");
@@ -219,30 +242,39 @@ fInt.add(params, "maxDepth", 1, 12, 0.1).name("max depth").onChange(() => regene
 fInt.add(params, "curtainSeed", 0, 100, 1).name("curtain seed").onChange(() => regenerate());
 fInt.add(params, "noCurtainChance", 0, 1, 0.01).name("no curtain chance").onChange(() => regenerate());
 fInt.add(params, "closedChance", 0, 1, 0.01).name("closed chance").onChange(() => regenerate());
-const roomLight = { gain: 2.2 }; // FR_Interior's emission "EXPOSURE" multiplier
-fInt.add(roomLight, "gain", 0, 6, 0.05).name("room brightness")
-  .onChange((v: number) => { if (mats) mats.interior.userData.gain.value = v; });
 fInt.close();
 
-// ---- environment / look ----
-const envState = { preset: "golden hour" as PresetName, autoOrbit: true, orbitSpeed: 0.5, clouds: true };
-const fEnv = gui.addFolder("environment");
-fEnv.add(envState, "preset", ["golden hour", "day", "night"]).name("time of day")
-  .onChange((v: PresetName) => env.applyPreset(v, post));
-fEnv.add(envState, "autoOrbit").name("auto orbit").onChange((v: boolean) => (controls.autoRotate = v));
-fEnv.add(envState, "orbitSpeed", -3, 3, 0.05).name("orbit speed")
-  .onChange((v: number) => (controls.autoRotateSpeed = v));
-fEnv.add(envState, "clouds").name("clouds").onChange((v: boolean) => env.setCloudsVisible(v));
-const fCine = fEnv.addFolder("cinematic");
-fCine.add(post.bloom, "strength", 0, 1.5, 0.01).name("bloom");
-fCine.add(post.gradeUniforms["uVignette"], "value", 0, 1, 0.01).name("vignette");
-fCine.add(post.gradeUniforms["uGrain"], "value", 0, 0.2, 0.005).name("film grain");
-fCine.add(post.gradeUniforms["uChroma"], "value", 0, 0.01, 0.0001).name("chromatic aberration");
-fCine.add(post.gradeUniforms["uSaturation"], "value", 0, 2, 0.01).name("saturation");
-fCine.add(post.gradeUniforms["uContrast"], "value", 0.7, 1.6, 0.01).name("contrast");
-fCine.close();
-controls.autoRotate = envState.autoOrbit;
-controls.autoRotateSpeed = envState.orbitSpeed;
+// lighting set: mood + key / fill / rim / practicals / atmosphere
+studio.addGui(gui);
+
+const fCam = gui.addFolder("🎥 camera");
+fCam.add(cam, "shot", SHOTS).name("shot").onChange((s: Shot) => goShot(s)).listen();
+fCam.add({ replay: () => goShot(cam.shot) }, "replay").name("▶ fly to shot");
+fCam.add(cam, "autoOrbit").name("auto orbit").onChange((v: boolean) => (controls.autoRotate = v));
+fCam.add(cam, "orbitSpeed", -2, 2, 0.01).name("orbit speed").onChange((v: number) => (controls.autoRotateSpeed = v));
+fCam.add(cam, "fov", 12, 75, 0.5).name("field of view °").onChange((v: number) => {
+  director.stop();
+  camera.fov = v;
+  camera.updateProjectionMatrix();
+}).listen();
+fCam.add(cam, "letterbox", Object.keys(LETTERBOX)).name("letterbox")
+  .onChange((v: Letterbox) => (post.letterbox = LETTERBOX[v]));
+const fDof = fCam.addFolder("depth of field");
+fDof.add(cam, "dof").name("enabled").onChange((v: boolean) => (post.bokeh.enabled = v));
+fDof.add(cam, "autofocus").name("focus on target");
+fDof.add(post.bokehUniforms["focus"], "value", 1, 200, 0.1).name("focus distance").listen();
+fDof.add(cam, "aperture", 0, 0.004, 0.00005).name("aperture").onChange((v: number) => (post.bokehUniforms["aperture"].value = v));
+fDof.add(cam, "maxBlur", 0, 0.02, 0.0005).name("max blur").onChange((v: number) => (post.bokehUniforms["maxblur"].value = v));
+fDof.close();
+
+const fPost = gui.addFolder("✨ post");
+const aoState = { enabled: true };
+fPost.add(aoState, "enabled").name("ambient occlusion").onChange((v: boolean) => (post.ao.enabled = v));
+fPost.add(post.ao, "blendIntensity", 0, 1.5, 0.01).name("AO strength");
+studio.addGradeGui(fPost);
+fPost.add(cam, "chroma", 0, 0.01, 0.0001).name("chromatic aberration")
+  .onChange((v: number) => (post.gradeUniforms["uChroma"].value = v));
+fPost.close();
 
 // ---- snow GUI (master toggle + snowfall + accumulation) ----
 const fSnow = gui.addFolder("snow");
@@ -277,9 +309,10 @@ fAccum.add(accumU.uSnowSparkleScale, "value", 30, 300, 1).name("sparkle density"
 fAccum.close();
 fSnow.close();
 
-// ---- rain GUI (master toggle + rainfall + wetness) ----
+// ---- rain GUI (master toggle + rainfall + wetness + lightning) ----
 const fRain = gui.addFolder("rain");
 fRain.add(rainState, "enabled").name("enabled").onChange(applyRainEnabled);
+fRain.add(studio, "lightning").name("⚡ lightning");
 const fRainfall = fRain.addFolder("rainfall");
 fRainfall.add(rainState, "density", 0, 1, 0.01).name("density").onChange((v: number) => rain.setDensity(v));
 fRainfall.add(rain.uniforms.uSpeed, "value", 2, 60, 0.5).name("fall speed");
@@ -314,13 +347,24 @@ fWet.add(wetU.uRippleDensity, "value", 0, 1, 0.01).name("ripple density");
 fWet.close();
 fRain.close();
 
+// ---- fps readout (debug) ----
+const fps = { enabled: false };
+const fpsEl = document.createElement("div");
+fpsEl.style.cssText =
+  "position:fixed;top:8px;left:8px;z-index:10;padding:3px 7px;border-radius:4px;background:rgba(0,0,0,.6);" +
+  "color:#9fe870;font:12px/1.3 ui-monospace,monospace;pointer-events:none;display:none";
+document.body.appendChild(fpsEl);
+let fpsT = performance.now(), fpsN = 0;
+gui.add(fps, "enabled").name("fps").onChange((v: boolean) => (fpsEl.style.display = v ? "block" : "none"));
+
 // dev hooks for headless screenshots (tools/screenshot.mjs)
 const devWindow = window as unknown as {
   __setParams?: (p: Partial<BuildingParams>) => void;
   __setCamera?: (px: number, py: number, pz: number, tx: number, ty: number, tz: number) => void;
   __snow?: (on: boolean) => void;
   __rain?: (on: boolean) => void;
-  __preset?: (name: PresetName) => void;
+  __mood?: (name: Mood, seconds?: number) => void;
+  __shot?: (name: Shot, seconds?: number) => void;
   __orbit?: (on: boolean) => void;
   __ready?: boolean;
 };
@@ -330,6 +374,7 @@ devWindow.__setParams = p => {
   regenerate();
 };
 devWindow.__setCamera = (px, py, pz, tx, ty, tz) => {
+  director.stop();
   controls.autoRotate = false;
   camera.position.set(px, py, pz);
   controls.target.set(tx, ty, tz);
@@ -337,27 +382,23 @@ devWindow.__setCamera = (px, py, pz, tx, ty, tz) => {
 };
 devWindow.__snow = on => { snowState.enabled = on; applySnowEnabled(on); };
 devWindow.__rain = on => { rainState.enabled = on; applyRainEnabled(on); };
-devWindow.__preset = name => {
-  envState.preset = name;
-  env.applyPreset(name, post);
-  gui.controllersRecursive().forEach(c => c.updateDisplay());
-};
-devWindow.__orbit = on => { envState.autoOrbit = on; controls.autoRotate = on; };
+devWindow.__mood = (name, seconds = 0) => studio.setMood(name, seconds);
+devWindow.__shot = (name, seconds = 0) => goShot(name, seconds);
+devWindow.__orbit = on => { cam.autoOrbit = on; controls.autoRotate = on; gui.controllersRecursive().forEach(c => c.updateDisplay()); };
 
 async function init(): Promise<void> {
   mats = await createMaterials("assets/");
+  studio.onInterior = gain => (mats.interior.userData.gain.value = gain);
   kit = new Kit(mats.byName);
   kit.snowShellMaterial = snowShellMaterial; // set before building so buildGroup adds shells
-  await kit.load("assets/kit.glb");
+  await Promise.all([kit.load("assets/kit.glb"), studio.buildStage("assets/", snowShellMaterial)]);
   document.getElementById("loading")?.remove();
-  env.setGlassMaterials([mats.glass]);
-  // inject the wet-surface shader into every building + ground material once
+  // inject the wet-surface shader into every building + stage material once
   // (inert while uWet = 0; the rain toggle raises it to 1)
-  for (const m of mats.surfaces) applyWet(m, wetU);
-  for (const m of env.wetTargets) applyWet(m, wetU);
+  for (const m of [...mats.surfaces, ...studio.wetTargets]) applyWet(m, wetU);
   regenerate();
-  env.applyPreset(envState.preset, post);
-  frameCamera(true);
+  studio.setMood("Studio", 0);
+  goShot(cam.shot, 0);
   devWindow.__ready = true;
 }
 
@@ -367,19 +408,30 @@ init().catch(err => {
   console.error(err);
 });
 
-addEventListener("resize", () => {
-  camera.aspect = innerWidth / innerHeight;
+// size is checked every frame: robust to hidden/zero-size viewports and to
+// layout changes that don't fire a window resize
+function fitViewport(): void {
+  const w = innerWidth, h = innerHeight;
+  if (!w || !h || (w === viewW && h === viewH)) return;
+  viewW = w;
+  viewH = h;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  post.setSize(innerWidth, innerHeight);
-});
+  renderer.setSize(w, h);
+  post.setSize(w, h);
+}
 
-const clock = new Clock();
-renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.1);
-  controls.update();
-  if (camera.position.y < 0.4) camera.position.y = 0.4; // stay above the pedestal rim
-  env.tick(dt);
+const timer = new Timer();
+renderer.setAnimationLoop(time => {
+  fitViewport();
+  timer.update(time);
+  const dt = Math.min(timer.getDelta(), 0.1);
+  director.tick(dt);
+  controls.autoRotate = cam.autoOrbit && !director.moving;
+  controls.update(dt);
+  if (camera.position.y < 0.35) camera.position.y = 0.35; // stay above the stage floor
+
+  rainShared.uLightning.value = studio.tick(dt, rainState.enabled);
   if (snowState.enabled) {
     snowShared.uTime.value += dt; // drives flake fall + sparkle twinkle
     snow.update();
@@ -387,6 +439,17 @@ renderer.setAnimationLoop(() => {
   if (rainState.enabled) {
     rainShared.uTime.value += dt; // drives streak fall + puddle ripples
     rain.update();
+  }
+  if (cam.autofocus) post.bokehUniforms["focus"].value = camera.position.distanceTo(controls.target);
+
+  if (fps.enabled) {
+    fpsN++;
+    const now = performance.now();
+    if (now - fpsT >= 500) {
+      fpsEl.textContent = `${Math.round((fpsN * 1000) / (now - fpsT))} fps`;
+      fpsT = now;
+      fpsN = 0;
+    }
   }
   post.render(dt);
 });
