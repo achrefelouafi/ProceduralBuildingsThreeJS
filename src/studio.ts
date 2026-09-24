@@ -453,6 +453,13 @@ export class Studio {
     this.apply();
   }
 
+  /** hide the stone plinth when the building brings its own sidewalk (the NYC corner) */
+  showPlinth(v: boolean): void {
+    if (this.sidewalk) this.sidewalk.visible = v;
+    const shell = this.snowShell.getObjectByName("sidewalkShell");
+    if (shell) shell.visible = v;
+  }
+
   private center(): Vector3 {
     return new Vector3(0, this.bounds.height * 0.45, 0);
   }

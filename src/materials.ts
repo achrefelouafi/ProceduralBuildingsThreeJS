@@ -10,8 +10,8 @@
  * shadows and the weather shaders (wet.ts chains onto these hooks).
  * Blender-only terms (Ambient Occlusion / Bevel shader nodes) are omitted.
  *
- * FR_Glass, FR_Interior (room atlas) and FR_Voile (curtains) are rebuilt as
- * their own small shaders.
+ * FR_Glass, FR_Interior (room atlas) and FR_Voile (opaque curtains) are rebuilt
+ * as their own small materials.
  */
 import {
   Color, DoubleSide, LinearMipmapLinearFilter, Material, MeshBasicMaterial, MeshPhysicalMaterial,
@@ -323,18 +323,20 @@ async function interior(base: string): Promise<MeshBasicMaterial & { userData: {
   return mat;
 }
 
-/** FR_Voile: diffuse/translucent cloth at ~51% coverage (the 180× wave bands average out) */
-function voile(): MeshStandardMaterial {
-  return new MeshStandardMaterial({
+/**
+ * FR_Voile: opaque cotton curtain — Principled BSDF, base color (0.78, 0.74, 0.66),
+ * roughness 0.9, sheen 0.5 (sheen roughness 0.4), no transmission / alpha.
+ * The .blend's 180× wave-band bump (a fine weave) is below pixel scale here.
+ */
+function voile(): MeshPhysicalMaterial {
+  return new MeshPhysicalMaterial({
     name: "FR_Voile",
-    color: new Color(0.925, 0.905, 0.86),
-    emissive: new Color(0.925, 0.905, 0.86),
-    emissiveIntensity: 0.12, // stands in for the Translucent BSDF half
-    roughness: 1,
+    color: new Color(0.78, 0.74, 0.66),
+    roughness: 0.9,
+    sheen: 0.5,
+    sheenRoughness: 0.4,
+    sheenColor: new Color(1, 1, 1),
     side: DoubleSide,
-    transparent: true,
-    opacity: 0.51,
-    depthWrite: false,
   });
 }
 
@@ -342,7 +344,7 @@ export interface BuildingMaterials {
   byName: Map<string, Material>;
   glass: MeshStandardMaterial;
   interior: MeshBasicMaterial & { userData: { gain: { value: number } } };
-  voile: MeshStandardMaterial;
+  voile: MeshPhysicalMaterial;
   /** the triplanar surface materials (weather targets) */
   surfaces: MeshStandardMaterial[];
 }

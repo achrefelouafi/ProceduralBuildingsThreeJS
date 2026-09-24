@@ -9,13 +9,16 @@ import { generateBuilding } from "./generator";
 import { generateCurtains, generateRooms } from "./interiors";
 import { createMaterials, type BuildingMaterials } from "./materials";
 import { Kit } from "./kit";
-import { SIDEWALK, Studio, type Mood } from "./studio";
+import { SIDEWALK, Studio, type Mood, type StageBounds } from "./studio";
 import { LETTERBOX, PostFX, type Letterbox } from "./postfx";
 import { frameShot, SHOTS, ShotDirector, type Shot } from "./shots";
 import { createSnow } from "./snow";
 import { createSnowAccumUniforms, createSnowShellMaterial } from "./snowAccum";
 import { createRain } from "./rain";
 import { createWetUniforms, applyWet } from "./wet";
+import { NycBuilding } from "./nyc/building";
+import { disposeNycGroup } from "./nyc/render";
+import { nycSpace } from "./nyc/shadergraph";
 
 const app = document.getElementById("app")!;
 const renderer = new WebGLRenderer({ antialias: false, powerPreference: "high-performance" }); // MSAA lives in the composer
@@ -52,6 +55,17 @@ root.position.y = SIDEWALK;
 scene.add(root);
 
 const params: BuildingParams = defaultParams();
+// which building is on the stage: the French (Haussmann) port or the live
+// New York corner building (NYC_CornerBuilding.blend's graph, see src/nyc/)
+type BuildingKind = "French" | "New York";
+const which = { building: "French" as BuildingKind };
+let nyc: NycBuilding | null = null;
+let nycLoading: Promise<NycBuilding> | null = null;
+const isNyc = () => which.building === "New York" && nyc !== null;
+/** stage / shot bounds of the building currently shown */
+function currentSize(): StageBounds {
+  return isNyc() ? nyc!.size() : buildingSize(params);
+}
 const view = { interiors: true, curtains: true };
 let mats: BuildingMaterials;
 let kit: Kit;
@@ -141,6 +155,7 @@ function roofCap(cap: number[][]): Mesh {
 function regenerate(): void {
   if (building) {
     root.remove(building);
+    if (building.name === "nycBuilding") disposeNycGroup(building);
     building.traverse(o => {
       const im = o as { isInstancedMesh?: boolean; dispose?: () => void };
       if (im.isInstancedMesh) im.dispose?.();
@@ -148,6 +163,11 @@ function regenerate(): void {
     });
   }
 
+  if (isNyc()) {
+    buildNyc();
+    return;
+  }
+  studio.showPlinth(true);
   const b = generateBuilding(params);
   building = kit.buildGroup(b.instances);
   // the .blend building spans x ∈ [0, W], y ∈ [0, L] — center it on the stage
@@ -172,12 +192,38 @@ function regenerate(): void {
   curtains.name = "curtains";
   curtains.visible = view.curtains;
   curtains.renderOrder = 1; // behind the glass (renderOrder 2)
-  curtains.userData.noAO = true;
+  curtains.receiveShadow = true; // opaque cloth: takes shadows + AO like the facade
   building.add(curtains);
 
   root.add(building);
   applySnowEnabled(snowState.enabled); // new snowShell group starts hidden
-  studio.frame(buildingSize(params)); // plinth, light rig + shadow frustum
+  studio.frame(currentSize()); // plinth, light rig + shadow frustum
+}
+
+/** evaluate the NYC_Building graph with the GUI values and put it on the stage */
+function buildNyc(): void {
+  const n = nyc!;
+  const t0 = performance.now();
+  let g: Group;
+  try {
+    g = n.build(snowShellMaterial);
+  } catch (err) {
+    console.error("NYC building evaluation failed:", err);
+    building = null;
+    return;
+  }
+  // the corner sits at the Blender origin — centre the footprint on the stage
+  const c = n.center();
+  g.position.set(-c.x, -c.y, 0);
+  building = g;
+  root.add(g);
+  g.updateMatrixWorld(true);
+  nycSpace.uNycFromWorld.value.copy(g.matrixWorld).invert();
+  nycSpace.uNycNormalToWorld.value.setFromMatrix4(g.matrixWorld);
+  studio.showPlinth(!n.hasSidewalk); // its own sidewalk + curb replace the stone plinth
+  applySnowEnabled(snowState.enabled);
+  studio.frame(currentSize());
+  console.info(`NYC building: ${(performance.now() - t0).toFixed(0)} ms`);
 }
 
 let viewW = 0, viewH = 0; // last applied viewport size (see fitViewport)
@@ -204,13 +250,14 @@ function goShot(shot: Shot, seconds = 2.4): void {
   const lb = LETTERBOX[cam.letterbox];
   const aspect = viewW && viewH ? viewW / viewH : 16 / 9; // hidden viewport: assume 16:9
   const visible = lb > 0 ? Math.min(1, aspect / lb) : 1;
-  const f = frameShot(shot, buildingSize(params), visible);
+  const f = frameShot(shot, currentSize(), visible);
   cam.fov = f.fov;
   director.go(f, seconds);
 }
 
 // ---- GUI ----
-const gui = new GUI({ title: "haussmann building · lighting set" });
+const gui = new GUI({ title: "procedural buildings · lighting set" });
+gui.add(which, "building", ["French", "New York"]).name("🏙 building").onChange(() => void switchBuilding());
 
 // the FR_Procedural_Building modifier inputs (same names / ranges as the .blend)
 const fBuild = gui.addFolder("building");
@@ -243,6 +290,81 @@ fInt.add(params, "curtainSeed", 0, 100, 1).name("curtain seed").onChange(() => r
 fInt.add(params, "noCurtainChance", 0, 1, 0.01).name("no curtain chance").onChange(() => regenerate());
 fInt.add(params, "closedChance", 0, 1, 0.01).name("closed chance").onChange(() => regenerate());
 fInt.close();
+
+// the NYC_Building modifier inputs — filled from the graph's interface once loaded
+const fNyc = gui.addFolder("building · New York");
+fNyc.hide();
+
+function buildNycGui(n: NycBuilding): void {
+  const folders = new Map<string, GUI>();
+  let timer = 0;
+  const regen = () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => regenerate(), 30);
+  };
+  const DEG = 180 / Math.PI;
+  for (const i of n.inputs) {
+    let f = folders.get(i.panel);
+    if (!f) {
+      f = fNyc.addFolder(i.panel || "general");
+      if (folders.size) f.close();
+      folders.set(i.panel, f);
+    }
+    const bounded = i.min !== undefined && i.max !== undefined && Math.abs(i.min) < 1e6 && Math.abs(i.max) < 1e6;
+    let c;
+    if (i.type === "menu") c = f.add(n.params, i.name, i.options ?? []);
+    else if (i.type === "bool" || i.type === "string") c = f.add(n.params, i.name);
+    else if (i.subtype === "ANGLE" && bounded) {
+      const proxy = { v: Number(n.params[i.name]) * DEG };
+      c = f.add(proxy, "v", i.min! * DEG, i.max! * DEG, 0.5).name(`${i.name} °`)
+        .onChange((v: number) => (n.params[i.name] = v / DEG));
+      c.listen();
+    } else if (bounded) {
+      const range = i.max! - i.min!;
+      const step = i.type === "int" ? 1 : range <= 0.1 ? 0.001 : range <= 5 ? 0.01 : 0.05;
+      c = f.add(n.params, i.name, i.min, i.max, step);
+    } else {
+      c = f.add(n.params, i.name).step(i.type === "int" ? 1 : 0.01); // seeds: free number fields
+    }
+    c.onFinishChange(regen);
+    if (i.description) c.domElement.title = i.description;
+  }
+  fNyc.add({
+    reset: () => {
+      Object.assign(n.params, n.defaults());
+      fNyc.controllersRecursive().forEach(c => c.updateDisplay());
+      regenerate();
+    },
+  }, "reset").name("↺ reset to .blend values");
+}
+
+/** swap the building on the stage (the NYC data loads on first use) */
+async function switchBuilding(): Promise<void> {
+  const ny = which.building === "New York";
+  fBuild.show(!ny);
+  fInt.show(!ny);
+  fNyc.show(ny);
+  if (ny && !nyc) {
+    const note = document.createElement("div");
+    note.textContent = "loading the New York building…";
+    note.style.cssText = "position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:10;padding:6px 12px;" +
+      "border-radius:4px;background:rgba(0,0,0,.7);color:#eee;font:13px system-ui,sans-serif";
+    document.body.appendChild(note);
+    try {
+      nyc = await (nycLoading ??= NycBuilding.load("assets/"));
+      // rain soaks the NYC surfaces too (glass stays as is)
+      for (const m of nyc.materials.values()) if (!m.transparent) applyWet(m.material, wetU);
+      buildNycGui(nyc);
+    } catch (err) {
+      console.error(err);
+      note.textContent = `FAILED TO LOAD THE NYC BUILDING: ${err}`;
+      return;
+    }
+    note.remove();
+  }
+  regenerate();
+  goShot(cam.shot);
+}
 
 // lighting set: mood + key / fill / rim / practicals / atmosphere
 studio.addGui(gui);
@@ -366,6 +488,8 @@ const devWindow = window as unknown as {
   __mood?: (name: Mood, seconds?: number) => void;
   __shot?: (name: Shot, seconds?: number) => void;
   __orbit?: (on: boolean) => void;
+  __building?: (kind: BuildingKind) => Promise<void>;
+  __setNyc?: (p: Record<string, number | boolean | string>) => void;
   __ready?: boolean;
 };
 devWindow.__setParams = p => {
@@ -384,11 +508,25 @@ devWindow.__snow = on => { snowState.enabled = on; applySnowEnabled(on); };
 devWindow.__rain = on => { rainState.enabled = on; applyRainEnabled(on); };
 devWindow.__mood = (name, seconds = 0) => studio.setMood(name, seconds);
 devWindow.__shot = (name, seconds = 0) => goShot(name, seconds);
+devWindow.__building = kind => {
+  which.building = kind;
+  gui.controllersRecursive().forEach(c => c.updateDisplay());
+  return switchBuilding();
+};
+devWindow.__setNyc = p => {
+  if (!nyc) return;
+  Object.assign(nyc.params, p);
+  gui.controllersRecursive().forEach(c => c.updateDisplay());
+  regenerate();
+};
 devWindow.__orbit = on => { cam.autoOrbit = on; controls.autoRotate = on; gui.controllersRecursive().forEach(c => c.updateDisplay()); };
 
 async function init(): Promise<void> {
   mats = await createMaterials("assets/");
-  studio.onInterior = gain => (mats.interior.userData.gain.value = gain);
+  studio.onInterior = gain => {
+    mats.interior.userData.gain.value = gain;
+    nycSpace.uNycEmitGain.value = gain; // NYC windows / signs follow the mood too
+  };
   kit = new Kit(mats.byName);
   kit.snowShellMaterial = snowShellMaterial; // set before building so buildGroup adds shells
   await Promise.all([kit.load("assets/kit.glb"), studio.buildStage("assets/", snowShellMaterial)]);
@@ -440,6 +578,7 @@ renderer.setAnimationLoop(time => {
     rainShared.uTime.value += dt; // drives streak fall + puddle ripples
     rain.update();
   }
+  if (isNyc()) nycSpace.uNycCamB.value.copy(camera.position).applyMatrix4(nycSpace.uNycFromWorld.value);
   if (cam.autofocus) post.bokehUniforms["focus"].value = camera.position.distanceTo(controls.target);
 
   if (fps.enabled) {
