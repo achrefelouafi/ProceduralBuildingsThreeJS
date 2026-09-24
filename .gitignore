@@ -1,3 +1,6 @@
+# Blender backup files
+*.blend1
+
 # Logs
 logs
 *.log
@@ -134,3 +137,6 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Blender ground truth for `npm run verify` (tools/dump_truth.py output, ~3 MB)
+tools/truth.json
