@@ -1,7 +1,14 @@
 # ProdceduralBuildingsThreeJS
 
-A web configurator for a procedural Haussmann-style Parisian apartment building,
-ported from the geometry-nodes setup in `FrenchBuilding.blend`:
+A web configurator for procedural buildings ported from Blender geometry nodes,
+on a cinematic lighting stage. The **🏙 building** selector at the top of the GUI
+switches between:
+
+- **French**: a Haussmann-style Parisian apartment building (below);
+- **New York**: the pre-war corner building from `NYC_CornerBuilding.blend`,
+  evaluated live from its real node graph (see [New York building](#new-york-building)).
+
+The French building is ported from the geometry-nodes setup in `FrenchBuilding.blend`:
 
 - **FR_Procedural_Building** (modifier "French Building" on `FR_Building`) and its
   **FR_Facade_Side** subgroup assemble the facade modules;
@@ -30,6 +37,11 @@ GUI folders:
   Ornamented Panels), detail seed, detail depth.
 - **interiors**: room / curtain visibility, room seed, max room depth,
   curtain seed, no-curtain and closed-curtain chances, room brightness.
+- **building · New York** (when selected): every input of the NYC_Building
+  modifier, grouped by its panels (Building, Facade, Windows, Facade Modules, AC,
+  Balconies, Interiors, Lighting, Shops, Escalator, Fire Escapes, Signs, Roof,
+  Cornice), with the .blend's ranges and tooltips; angles in degrees; a
+  "reset to .blend values" button.
 - **🎬 lighting set**, **🎥 camera**, **✨ post**, **snow**, **rain**: see below.
 
 ## How the port works
@@ -61,6 +73,33 @@ GUI folders:
 - FR_Interior is an emission shader: a flat-perspective lookup into a 2×5 atlas
   of apartment photos (`tex/interiors.jpg`), per-room offset, mirroring, and warm
   "lamps on" tint.
+
+## New York building
+
+The NYC building is not re-typed in TypeScript. Its ~3,500 geometry nodes and
+28 material node trees are **dumped from the .blend and executed in the browser**,
+so edits in Blender carry over by re-running the export scripts.
+
+| piece | file |
+| --- | --- |
+| geometry-nodes evaluator (fields, 45 node types, Blender float32 / hash / multi-input order semantics) | [src/nyc/gn.ts](src/nyc/gn.ts) |
+| meshes, point clouds, curves, instances, Blender matrices + primitives | [src/nyc/geo.ts](src/nyc/geo.ts) |
+| module kit + String to Curves glyphs | [src/nyc/kit.ts](src/nyc/kit.ts) |
+| shader node trees → GLSL in MeshPhysicalMaterial (triplanar texture sets, ramps, noise, bump, room projections, glass) | [src/nyc/shadergraph.ts](src/nyc/shadergraph.ts) |
+| leaves → InstancedMesh per mesh / material slot, instance attributes packed as vec4 | [src/nyc/flatten.ts](src/nyc/flatten.ts), [src/nyc/render.ts](src/nyc/render.ts) |
+| GUI metadata, defaults, stage bounds | [src/nyc/building.ts](src/nyc/building.ts) |
+
+Assets live in `public/assets/nyc/` (`graph.json`, `kit.json` + `kit.bin`,
+`materials.json`, `tex/`, ~11 MB) and load the first time New York is selected.
+A rebuild takes ~0.4–1.2 s in the browser, so the GUI rebuilds when a slider is
+released. When its own sidewalk is on, the studio's stone plinth is hidden.
+
+Known approximations: Noise / Voronoi / White Noise textures are GLSL
+look-alikes (not Blender's exact hashes), custom sign text ignores kerning, and
+instance attributes that drive material colours are not verified value by value
+(only geometry is, see below). The stage uses its own lights and ACES tone
+mapping, so the building reads brighter than Blender's AgX render of the same
+view; the colours measure the same hue.
 
 ## Cinematic lighting set
 
@@ -115,6 +154,16 @@ $blend = "$HOME\Desktop\FrenchBuilding.blend"   # wherever the .blend lives
 & $blender --background $blend --python tools\dump_graph.py -- graph.json
 ```
 
+New York (`NYC_CornerBuilding.blend`, read-only):
+
+```powershell
+$nyc = "$HOME\Desktop\NYC_CornerBuilding.blend"
+& $blender --background $nyc --python tools\nyc\dump_nyc_graph.py -- public\assets\nyc\graph.json
+& $blender --background $nyc --python tools\nyc\export_nyc_kit.py -- .
+& $blender --background $nyc --python tools\nyc\export_nyc_materials.py -- .
+& $blender --background $nyc --python tools\nyc\dump_nyc_truth.py -- tools\nyc\truth.json
+```
+
 `export_kit.py` writes `public/assets/kit.glb` (module meshes with their material
 slots) and `public/assets/tex/` (1024 px color maps, 512 px roughness +
 displacement packs, and the interior atlas).
@@ -129,3 +178,16 @@ This compares the generator with `tools/truth.json` (from `dump_truth.py`) and
 prints `ALL CHECKS MATCH BLENDER` when every building instance, the roof cap,
 every room vertex (position + `room_local` / `room_p1..3`) and every curtain
 vertex agree.
+
+```sh
+npm run verify:nyc
+```
+
+Runs the NYC evaluator on 4 parameter sets from `tools/nyc/truth.json` (the
+file's values; LOW detail with a 1.9 rad corner; MEDIUM with other styles and a
+custom sign; escalator / casement / grid sashes) and matches every rendered
+piece against Blender's depsgraph (mesh signature + world matrix within 2 mm).
+It prints `NYC: ALL SETS MATCH BLENDER`.
+
+`node tools/nyc/screenshot_nyc.mjs <url> <outDir> [shot | cam=px,py,pz,tx,ty,tz] [mood] [json params]`
+takes headless screenshots of the New York building.

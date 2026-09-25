@@ -14,11 +14,12 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 page.on("console", m => { const t = m.text(); if (!/DevTools|Download the/.test(t)) console.log("[page]", t.slice(0, 1500)); });
 page.on("pageerror", e => console.log("[pageerror]", e.message));
+page.on("response", r => { if (r.status() >= 400) console.log("[http]", r.status(), r.url()); });
 await page.goto(url, { waitUntil: "networkidle0" });
 await page.waitForFunction("window.__ready === true", { timeout: 60000 });
 await page.evaluate(() => window.__orbit(false));
 await page.evaluate(() => window.__building("New York"));
-await new Promise(r => setTimeout(r, 3000)); // let the switch's camera flight finish
+await new Promise(r => setTimeout(r, 500));
 if (params) await page.evaluate(p => window.__setNyc(JSON.parse(p)), params);
 if (mood) await page.evaluate(m => window.__mood(m), mood);
 if (shot.startsWith("cam=")) {

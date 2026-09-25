@@ -525,7 +525,9 @@ async function init(): Promise<void> {
   mats = await createMaterials("assets/");
   studio.onInterior = gain => {
     mats.interior.userData.gain.value = gain;
-    nycSpace.uNycEmitGain.value = gain; // NYC windows / signs follow the mood too
+    // NYC emission strengths are Blender's own; follow the mood relative to the
+    // French room shader's 2.2 baseline (its Emission "EXPOSURE")
+    nycSpace.uNycEmitGain.value = gain / 2.2;
   };
   kit = new Kit(mats.byName);
   kit.snowShellMaterial = snowShellMaterial; // set before building so buildGroup adds shells

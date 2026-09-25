@@ -72,6 +72,7 @@ export class ShotDirector {
   go(f: Framing, seconds = 2.4): void {
     if (![f.pos.x, f.pos.y, f.pos.z, f.target.x, f.target.y, f.target.z, f.fov].every(Number.isFinite)) return;
     if (seconds <= 0) {
+      this.stop(); // an instant cut also cancels a move in flight
       this.set(f);
       return;
     }
