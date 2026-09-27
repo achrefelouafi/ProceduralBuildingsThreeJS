@@ -101,6 +101,12 @@ export class City {
   /** heightmap texels waiting to be redrawn (i0, i1, j0, j1) */
   private pending = [MAP_N, -1, MAP_N, -1];
   private focus = new Vector3();
+  /**
+   * the next sink jumps straight to its targets: a new build, a new hero size
+   * or the toggle don't animate, only camera moves do
+   */
+  private snap = true;
+  private sunkFadeOn = true;
 
   readonly uniforms = {
     uCityMap: { value: null as DataTexture | null },
@@ -187,9 +193,12 @@ export class City {
   tick(dt: number, camera: Camera, focus: Vector3, focusR: number): void {
     camera.getWorldPosition(this.camPos);
     this.focus.copy(focus);
+    if (Math.abs(focusR - this.uniforms.uFocusR.value) > 1e-3 || this.fadeOn !== this.sunkFadeOn) this.snap = true;
     this.uniforms.uFocusR.value = focusR;
+    this.sunkFadeOn = this.fadeOn;
     if (!this.current) return;
-    this.sink(this.current, dt);
+    this.sink(this.current, this.snap ? 1 : Math.min(1, dt * 5));
+    this.snap = false;
     // in step with the boxes: a roof under a stale (taller) column shades itself
     if (this.pending[1] >= 0) this.redrawMap(this.current);
   }
@@ -198,8 +207,9 @@ export class City {
    * The view cone runs from the camera to just in front of the hero (its
    * radius grows from 1.5 m to 0.8 × the hero's): a building it touches sinks
    * into the ground, whole and eased, and rises again once the camera moves on.
+   * `ease` is the share of the way to the target covered this frame (1: snap).
    */
-  private sink(b: CityBuild, dt: number): void {
+  private sink(b: CityBuild, ease: number): void {
     const st = b.sink;
     const C = this.camPos, F = this.focus, R = this.uniforms.uFocusR.value;
     const dx = F.x - C.x, dy = F.y - C.y, dz = F.z - C.z;
@@ -209,7 +219,6 @@ export class City {
     // the cone's ground track, for a quick reject
     const hxz = Math.hypot(ux, uz), track = len * hxz;
     const gx = hxz > 1e-6 ? ux / hxz : 0, gz = hxz > 1e-6 ? uz / hxz : 0;
-    const ease = Math.min(1, dt * 5);
     let any = false;
     for (let g = 0; g < st.shown.length; g++) {
       const o = g * 5;
@@ -295,6 +304,7 @@ export class City {
     }
     this.current = b;
     this.pending = [MAP_N, -1, MAP_N, -1];
+    this.snap = true; // a fresh build stands whole, a cached one as it was left
     this.group.add(b.mesh);
     if (b.shell) this.snowShell.add(b.shell);
     const u = this.uniforms;
