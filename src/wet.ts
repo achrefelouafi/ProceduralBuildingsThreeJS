@@ -215,7 +215,7 @@ export function applyWet(material: Material, u: WetUniforms): void {
     injectWet(shader, u);
     prevCompile(shader, renderer);
   };
-  material.customProgramCacheKey = () => prevKey() + "|wet-building-v2";
+  material.customProgramCacheKey = () => prevKey() + "|wet-building-v3";
   material.needsUpdate = true;
 }
 
@@ -254,10 +254,15 @@ function injectWet(shader: WebGLProgramParametersWithUniforms, u: WetUniforms): 
       "#include <map_fragment>",
       `#include <map_fragment>
       float upN = vWetWorldN.y;
-      float pmask = wetPuddleMaskAt(vWetWorldP); // patchy wet/dry coverage
-      float wetBase = uWet * uWetness * smoothstep(-0.3, 0.6, upN) * pmask;
-      float topMask = uWet * uTopPuddle * smoothstep(uFlatThreshold, min(uFlatThreshold + 0.15, 1.0), upN) * pmask;
-      float beads = wetDropletMask(vWetWorldP) * uDropletAmount * wetBase;
+      float wetBase = 0.0, topMask = 0.0, beads = 0.0;
+      // dry (rain off): skip the noise and droplet fields entirely — uWet is
+      // uniform across the draw, so this branch costs nothing
+      if (uWet > 0.0) {
+        float pmask = wetPuddleMaskAt(vWetWorldP); // patchy wet/dry coverage
+        wetBase = uWet * uWetness * smoothstep(-0.3, 0.6, upN) * pmask;
+        topMask = uWet * uTopPuddle * smoothstep(uFlatThreshold, min(uFlatThreshold + 0.15, 1.0), upN) * pmask;
+        beads = wetDropletMask(vWetWorldP) * uDropletAmount * wetBase;
+      }
       float wetAll = clamp(max(wetBase, topMask), 0.0, 1.0);
       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * (1.0 - uWaterDarkness), wetAll);`,
     )
@@ -270,8 +275,10 @@ function injectWet(shader: WebGLProgramParametersWithUniforms, u: WetUniforms): 
     .replace(
       "#include <normal_fragment_maps>",
       `#include <normal_fragment_maps>
-      vec3 rN = mix(vec3(0.0, 1.0, 0.0), wetPuddleRippleNormal(vWetWorldP.xz), topMask);
-      vec3 rView = normalize((viewMatrix * vec4(rN, 0.0)).xyz);
-      normal = normalize(mix(normal, rView, topMask));`,
+      if (topMask > 0.0) {
+        vec3 rN = mix(vec3(0.0, 1.0, 0.0), wetPuddleRippleNormal(vWetWorldP.xz), topMask);
+        vec3 rView = normalize((viewMatrix * vec4(rN, 0.0)).xyz);
+        normal = normalize(mix(normal, rView, topMask));
+      }`,
     );
 }

@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+*.blend filter=lfs diff=lfs merge=lfs -text
+blender/textures/** filter=lfs diff=lfs merge=lfs -text

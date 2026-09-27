@@ -38,13 +38,13 @@ export function hashInt3d(kx: number, ky: number, kz: number): number {
 
 const f32buf = new Float32Array(1);
 const u32view = new Uint32Array(f32buf.buffer);
-function floatBits(x: number): number {
+export function floatBits(x: number): number {
   f32buf[0] = x;
   return u32view[0];
 }
 
 /** noise::uint_to_float_01 — float(k) / float(0xFFFFFFFF), in float32 */
-function uintTo01(k: number): number {
+export function uintTo01(k: number): number {
   return f32(f32(k) / 4294967296);
 }
 

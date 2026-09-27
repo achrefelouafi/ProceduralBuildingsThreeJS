@@ -1,12 +1,16 @@
 # ProdceduralBuildingsThreeJS
 
 A web configurator for procedural buildings ported from Blender geometry nodes,
-on a cinematic lighting stage. The **🏙 building** selector at the top of the GUI
+standing in a procedural city drawn as an architectural massing model, under a
+cinematic lighting set. The **🏙 building** selector at the top of the GUI
 switches between:
 
 - **French**: a Haussmann-style Parisian apartment building (below);
 - **New York**: the pre-war corner building from `NYC_CornerBuilding.blend`,
-  evaluated live from its real node graph (see [New York building](#new-york-building)).
+  evaluated live from its real node graph (see [New York building](#new-york-building));
+- **Chinese**: the corner apartment building with shops, enclosed balconies,
+  AC units, laundry and a rooftop sign from `CN_ApartmentBuilding.blend`,
+  evaluated live the same way (see [Chinese apartment building](#chinese-apartment-building)).
 
 The French building is ported from the geometry-nodes setup in `FrenchBuilding.blend`:
 
@@ -14,7 +18,13 @@ The French building is ported from the geometry-nodes setup in `FrenchBuilding.b
   **FR_Facade_Side** subgroup assemble the facade modules;
 - **FR_Interior_Rooms** / **FR_Interior_Curtains** (on `FR_Rooms` / `FR_Curtains`)
   read the building's instances and add lit rooms behind the windows and voile
-  curtains.
+  curtains;
+- **FR_SidewalkFollowBuilding** (modifier "Follow Building" on `FR_Sidewalk` /
+  `FR_Curb`, driven by Bays X / Y) stretches the paved sidewalk and the granite
+  curb around the building. Both meshes and their materials are exported by
+  `tools/export_fr_street.py` and drawn with the graph renderer and shader-graph
+  compiler of the New York building ([src/street.ts](src/street.ts)); the
+  city's streets start at the curb.
 
 The module meshes are exported to an instanced kit (`public/assets/kit.glb`), and
 all four graphs are ported to TypeScript. The port is **verified against
@@ -42,7 +52,15 @@ GUI folders:
   Balconies, Interiors, Lighting, Shops, Escalator, Fire Escapes, Signs, Roof,
   Cornice), with the .blend's ranges and tooltips; angles in degrees; a
   "reset to .blend values" button.
-- **🎬 lighting set**, **🎥 camera**, **✨ post**, **snow**, **rain**: see below.
+- **building · Chinese** (when selected): every input of the CN_Building
+  modifier, grouped by its panels (Building, Facade, Windows, Residents'
+  Additions, Shops, Rooftop Sign, Roof, Street), including the Wall Tint color
+  and the rooftop Sign Text; the same reset button.
+- **🎬 lighting set** (with **🏙 city**), **🎥 camera**, **✨ post**, **snow**, **rain**: see below.
+
+On start a preloader streams everything, evaluates all three buildings and
+compiles their shaders (see [Loading](#loading)), so switching building types
+afterwards is a swap.
 
 ## How the port works
 
@@ -82,37 +100,142 @@ so edits in Blender carry over by re-running the export scripts.
 
 | piece | file |
 | --- | --- |
-| geometry-nodes evaluator (fields, 45 node types, Blender float32 / hash / multi-input order semantics) | [src/nyc/gn.ts](src/nyc/gn.ts) |
+| geometry-nodes evaluator (fields, 60 node types, Blender float32 / hash / multi-input order semantics; shared with the Chinese building) | [src/nyc/gn.ts](src/nyc/gn.ts) |
 | meshes, point clouds, curves, instances, Blender matrices + primitives | [src/nyc/geo.ts](src/nyc/geo.ts) |
 | module kit + String to Curves glyphs | [src/nyc/kit.ts](src/nyc/kit.ts) |
 | shader node trees → GLSL in MeshPhysicalMaterial (triplanar texture sets, ramps, noise, bump, room projections, glass) | [src/nyc/shadergraph.ts](src/nyc/shadergraph.ts) |
 | leaves → InstancedMesh per mesh / material slot, instance attributes packed as vec4 | [src/nyc/flatten.ts](src/nyc/flatten.ts), [src/nyc/render.ts](src/nyc/render.ts) |
-| GUI metadata, defaults, stage bounds | [src/nyc/building.ts](src/nyc/building.ts) |
+| GUI metadata, defaults, stage bounds (`GraphBuilding`, `NycBuilding`) | [src/nyc/building.ts](src/nyc/building.ts) |
 
 Assets live in `public/assets/nyc/` (`graph.json`, `kit.json` + `kit.bin`,
 `materials.json`, `tex/`, ~11 MB) and load the first time New York is selected.
 A rebuild takes ~0.4–1.2 s in the browser, so the GUI rebuilds when a slider is
-released. When its own sidewalk is on, the studio's stone plinth is hidden.
+released. Its Sidewalk runs all the way round (Sidewalk All Around, on by
+default) or only along the two street facades, round the corner; the stage
+paves the sides it leaves bare, and the city's streets start at its curb.
 
 Known approximations: Noise / Voronoi / White Noise textures are GLSL
 look-alikes (not Blender's exact hashes), custom sign text ignores kerning, and
 instance attributes that drive material colours are not verified value by value
-(only geometry is, see below). The stage uses its own lights and ACES tone
+(only geometry is, see below). The stage uses its own lights and tone
 mapping, so the building reads brighter than Blender's AgX render of the same
 view; the colours measure the same hue.
 
+## Chinese apartment building
+
+`CN_ApartmentBuilding.blend`'s **CN_Building** modifier (on `CN_CornerApartment`)
+runs on the same evaluator as New York: its ~3,100 geometry nodes (CN_Building,
+CN_Facade, CN_Roof, CN_Street, CN_Finalize) and 42 materials are dumped from the
+.blend by [tools/cn/](tools/cn/) and executed in the browser
+([src/cn/building.ts](src/cn/building.ts) holds the footprint and stage bounds).
+
+What this graph needed beyond New York:
+
+- **One realized mesh.** The graph realizes everything, then CN_Finalize
+  box-projects a `UVMap` per material (corner domain) and tints the `Col` color
+  attribute. So the evaluator has corner-domain attributes, FLOAT2 / color /
+  int attributes, and domain adaptation (copy / average), and the building draws
+  as one mesh per material.
+- **New nodes:** Merge by Distance (Blender's index-order welding with averaged
+  attributes), region Extrude, Flip Faces, Mesh Grid, Curve Circle / Line,
+  Resample Curve, Spline Parameter, Distribute Points on Faces (Blender's
+  per-triangle drand48 generator, seed × 5383843, Poisson elimination and
+  swap-remove order), Geometry Proximity, Face Area, Material Selection,
+  Evaluate on Domain, Separate / Combine Color, color Mix, Remove Named
+  Attribute, point-domain Delete Geometry.
+- **Float-exact face normals.** The Normal field reads Blender's face normal
+  cache, which is Newell's method in float32 for every face. The UV projection
+  of 45° faces depends on its last bit.
+- **UV-mapped materials.** The shader compiler also handles UV Map, Color
+  Attribute, tangent-space Normal Map (tangent frame from UV derivatives) and
+  Principled Alpha: blended for BLENDED materials (glass, PVC strip curtains,
+  decals), clipped at 0.5 for dithered ones (leaves).
+- **Chinese text.** The rooftop Sign Text goes through String to Curves with
+  Bfont, which falls back to Noto Sans CJK. The kit carries ASCII plus the
+  1,172 characters of [tools/cn/glyphs.txt](tools/cn/glyphs.txt): common Chinese
+  signage and residential characters, traditional / Japanese kanji, hiragana,
+  katakana and CJK punctuation. Each glyph also carries Blender's own Fill Curve
+  triangulation, because its constrained Delaunay welds touching strokes (e.g. 福,
+  寓), so the extruded sign matches Blender exactly. Characters that aren't in the
+  list are left out; add them to the file and re-run the kit export.
+
+Assets live in `public/assets/cn/` (`graph.json`, `kit.json` + `kit.bin` with
+the glyphs, `materials.json`, `tex/` with 1024 px color and normal maps and
+512 px roughness / AO / opacity / metalness maps; ~23 MB). They load the first
+time Chinese is selected. A rebuild takes ~2 s, the GUI rebuilds when a slider
+is released, and with its Sidewalk on (all the way round) the stage adds no
+paving of its own: the streets start at its curb.
+
+Known approximations: alpha-clipped leaves cast solid shadows, and Fill Curve
+on curves that aren't untouched String to Curves glyphs triangulates with
+three's ear-clipping, not Blender's CDT (the graph doesn't do that).
+
+## The city
+
+The building stands in a procedural city ([src/city/](src/city/)) drawn like an
+architectural massing model: white roads and sidewalks, and plain white volumes
+(one per lot; towers get a podium and a setback). No greenery, cars or street
+furniture: the building on its paved forecourt is the only detailed thing.
+
+- **It follows the building.** The hero block is the footprint + its sidewalk +
+  a paved forecourt (none when the building brings its own sidewalk: the
+  streets start at its curb); a street grid wraps it, with block sizes drawn
+  per grid index, so a bigger building pushes the city outward and the city keeps its
+  buildings. The first ring stays below the building's height (it grows with
+  it), a skyline rises beyond, and the massing follows the building type: an
+  even Parisian cornice line, a New York downtown of narrow lots and towers, a
+  taller Chinese city ([src/city/layout.ts](src/city/layout.ts)).
+- **One draw call**: the whole city is one InstancedMesh of boxes (~700–900)
+  with one clay material ([src/city/glsl.ts](src/city/glsl.ts)). Near the
+  building it casts into the key light's shadow map and takes GTAO; further out a
+  1024² heightmap carries its shadows (a short march towards the sun).
+- **Clear the view**: a building standing between the camera and the hero sinks
+  into the ground, eased (instance matrices on the CPU, so shadows and GTAO
+  follow), and rises again as the camera moves on.
+- **Reflections**: in the city, the scene's environment map is captured from the
+  city itself (sky + skyline, the building hidden), per city, once per look.
+- **🏙 city** (under **🎬 lighting set**): the environment (City, or the dark
+  studio Stage the building stood on before), key on the city, "clear the view",
+  and a new random city.
+- Layouts are cached (the three building types + one more size), so switching
+  back is a swap; a new size lays out in ~5–30 ms.
+
+## Loading
+
+[src/preloader.ts](src/preloader.ts) and `index.html`: a white massing model
+that assembles itself as the app loads (the building first, then the city
+around it), a progress bar and the current step.
+
+1. every asset streams at once (the French kit, both graph buildings, their
+   textures; progress counts three's loader items and fetches);
+2. each building is built once: the graphs evaluate on the main thread (~0.4 s
+   New York, ~2 s Chinese), the loader keeps animating on the compositor;
+3. each building is put on the stage and its shaders compiled
+   (`compileAsync`, KHR_parallel_shader_compile) and rendered once, for the
+   shadow / AO / DoF pass variants; each city's reflections are captured.
+
+Built buildings are cached per type until their values change, so switching
+types doesn't re-evaluate a graph, and every shader is already compiled (on
+ANGLE / D3D11 a first compile of the node-graph materials stalls for seconds).
+A graph building re-evaluating after a slider change shows an "evaluating…"
+pill. The reveal flies from high above the city down into the hero shot.
+
 ## Cinematic lighting set
 
-The building stands on an endless studio stage: a dark asphalt floor with a
-light pool around the subject, a stone sidewalk plinth, and a cyclorama backdrop
-that melts into the haze ([src/studio.ts](src/studio.ts)).
+The lighting set ([src/studio.ts](src/studio.ts)): a sky dome (horizon →
+zenith gradient with a glow on the light source, a sun / moon disk, stars, a
+drifting cloud deck) that melts into the haze, the city's roads as the floor,
+and the stone plinth / site paving under the building (only where the building
+brings no sidewalk of its own).
 
-- **Moods**: *Studio*, *Golden Hour*, *Blue Hour*, *Midnight Noir*,
-  *Overcast*, *Storm*. Each is a complete "Look": key / fill / rim lights (color,
+- **Moods**: *Architectural* (the default: soft, bright daylight on the white
+  model, Khronos PBR Neutral tone mapping so whites stay white), *Studio*,
+  *Golden Hour*, *Blue Hour*, *Midnight Noir*, *Overcast*, *Storm*, *Clear
+  Day*, *Neon Night*. Each is a complete "Look": key / fill / rim lights (color,
   intensity, azimuth, elevation, shadow softness), hemisphere bounce, IBL, facade
-  uplights, room brightness, backdrop gradient + glow, height haze, bloom and
-  grade. Switching moods crossfades every value, and every value is editable live
-  under **🎬 lighting set**.
+  uplights, room brightness, sky, height haze, key on the city, tone mapping
+  (ACES / AgX / Neutral), bloom and grade. Switching moods crossfades every value,
+  and every value is editable live under **🎬 lighting set**.
 - **Light rig**: key (directional, 4k soft PCF shadows fitted to the building,
   long enough for a low sun), fill, a rim spot with an optional **volumetric
   beam**, hemisphere bounce, four grazing **facade uplights**, and **lightning**
@@ -122,17 +245,35 @@ that melts into the haze ([src/studio.ts](src/studio.ts)).
   material gets it.
 - **Post** ([src/postfx.ts](src/postfx.ts)): GTAO ambient occlusion (glass,
   curtains, particles and the beam are excluded), depth of field with autofocus
-  on the orbit target, bloom, ACES, and a film grade (white balance, split
-  toning, contrast, saturation, chromatic aberration, vignette, grain, animated
-  letterbox 1.85 / 2.39 / 2.76 : 1).
+  on the orbit target, bloom, the mood's tone mapping, and a film grade (white
+  balance, split toning, contrast, saturation, chromatic aberration, vignette,
+  grain, animated letterbox off / 1.85 / 2.39 / 2.76 : 1).
 - **Camera** ([src/shots.ts](src/shots.ts)): *Hero ¾*, *Street level*,
   *Worm's-eye*, *Aerial*, *Facade detail* and *Profile* are framed from the live
   building size (and the letterbox) and flown to with an eased dolly. Also: field
   of view and auto-orbit. Grabbing the camera cancels a move.
-- **Weather**: snow (flakes + accumulation shells on the building, floor and
-  sidewalk) and rain (streaks + wet, puddled, rippling surfaces on the building
+- **Weather**: snow (flakes + accumulation shells on the building, the city,
+  floor and sidewalk) and rain (streaks + wet, puddled, rippling surfaces on the building
   and the stage) — [src/snow.ts](src/snow.ts), [src/snowAccum.ts](src/snowAccum.ts),
   [src/rain.ts](src/rain.ts), [src/wet.ts](src/wet.ts).
+
+## Blender files
+
+The three source files live in [blender/](blender/): `FrenchBuilding.blend`,
+`NYC_CornerBuilding.blend` and `CN_ApartmentBuilding.blend` (Blender 5.1), with
+every image they use in `blender/textures/`, linked with relative paths, so they
+open anywhere: the ambientCG and Poly Haven sets (CC0) by set name, and in
+`misc/` the rest (the New York interior atlases and a few render previews). They
+are stored with [Git LFS](https://git-lfs.com) (~380 MB): install it before
+cloning, or run `git lfs pull` in an existing clone.
+
+They are shared copies of the working files. After editing an original,
+refresh its copy (its images are collected again; the original is not touched):
+
+```powershell
+& "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup `
+  "$HOME\Desktop\FrenchBuilding.blend" --python tools\collect_blend.py -- .
+```
 
 ## Blender tooling (Blender 5.1)
 
@@ -152,6 +293,9 @@ $blend = "$HOME\Desktop\FrenchBuilding.blend"   # wherever the .blend lives
 
 # dump the node graphs to JSON (for reviewing graph changes)
 & $blender --background $blend --python tools\dump_graph.py -- graph.json
+
+# re-export the sidewalk + curb (FR_Sidewalk / FR_Curb) and their materials
+& $blender --background $blend --python tools\export_fr_street.py -- .
 ```
 
 New York (`NYC_CornerBuilding.blend`, read-only):
@@ -162,6 +306,16 @@ $nyc = "$HOME\Desktop\NYC_CornerBuilding.blend"
 & $blender --background $nyc --python tools\nyc\export_nyc_kit.py -- .
 & $blender --background $nyc --python tools\nyc\export_nyc_materials.py -- .
 & $blender --background $nyc --python tools\nyc\dump_nyc_truth.py -- tools\nyc\truth.json
+```
+
+Chinese (`CN_ApartmentBuilding.blend`, read-only):
+
+```powershell
+$cn = "$HOME\Desktop\CN_ApartmentBuilding.blend"
+& $blender --background $cn --python tools\cn\dump_cn_graph.py -- public\assets\cn\graph.json
+& $blender --background $cn --python tools\cn\export_cn_kit.py -- .
+& $blender --background $cn --python tools\cn\export_cn_materials.py -- .
+& $blender --background $cn --python tools\cn\dump_cn_truth.py -- tools\cn\truth.json
 ```
 
 `export_kit.py` writes `public/assets/kit.glb` (module meshes with their material
@@ -189,5 +343,22 @@ custom sign; escalator / casement / grid sashes) and matches every rendered
 piece against Blender's depsgraph (mesh signature + world matrix within 2 mm).
 It prints `NYC: ALL SETS MATCH BLENDER`.
 
+```sh
+npm run verify:cn
+```
+
+Runs the evaluator on 5 parameter sets from `tools/cn/truth.json`:
+- the file's values;
+- a wider building at LOD1 with ceramic tile, a wall tint and a Latin sign;
+- a small 3-floor building with every resident addition and an empty roof;
+- a 12-floor LOD2 building with other window, shop and height settings;
+- the Collision boxes.
+
+For every material of the realized output mesh it compares the face, corner
+and smooth-face counts, area, bounding box, and the area-weighted moments of
+face centers, UVMap and Col with Blender's. It prints
+`CN: ALL SETS MATCH BLENDER`.
+
 `node tools/nyc/screenshot_nyc.mjs <url> <outDir> [shot | cam=px,py,pz,tx,ty,tz] [mood] [json params]`
-takes headless screenshots of the New York building.
+takes headless screenshots of the New York building, and
+`node tools/cn/screenshot_cn.mjs` (same arguments) of the Chinese building.

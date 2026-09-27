@@ -1,10 +1,12 @@
 /**
- * Draws an evaluated NYC building: every leaf mesh (flatten.ts) grouped by
+ * Draws an evaluated graph building: every leaf mesh (flatten.ts) grouped by
  * mesh identity into one InstancedMesh per material slot, with the instance
  * attributes the material reads as InstancedBufferAttributes (ai_<name>) and
- * the mesh's own point / face attributes as vertex attributes (ag_<name>).
- * Kit meshes shade with Blender's exported corner normals; generated meshes
- * flat or smooth per face like Blender.
+ * the mesh's own point / face / corner attributes (UVMap, Col …) as vertex
+ * attributes (ag_<name>). Kit meshes with exported corner normals (NYC) shade
+ * with them; other meshes flat or smooth per face like Blender, smooth faces
+ * averaging only their smooth neighbours (flat faces bound them like sharp
+ * edges). The CN building is one realized mesh: one InstancedMesh per material.
  */
 import {
   BufferAttribute, BufferGeometry, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh as TMesh,
@@ -16,16 +18,17 @@ import type { NycMaterial } from "./shadergraph";
 
 const fallback = new MeshStandardMaterial({ name: "NYC_none", color: 0x9a9a9a, roughness: 0.8 });
 
-interface SlotGeo { geo: BufferGeometry; corners: number[]; faces: number[] }
+/** per drawn vertex: the mesh point, face and corner it comes from */
+interface SlotGeo { geo: BufferGeometry; corners: number[]; faces: number[]; cornerIdx: number[] }
 
 /** triangulated per-slot geometry of one mesh (fan triangulation, corner-expanded) */
 function slotGeometries(m: Mesh, cornerNormals: Float32Array | undefined): Map<number, SlotGeo> {
-  const out = new Map<number, { pos: number[]; nrm: number[]; corners: number[]; faces: number[] }>();
-  const vn = cornerNormals ? null : m.vertexNormals();
+  const out = new Map<number, { pos: number[]; nrm: number[]; corners: number[]; faces: number[]; cornerIdx: number[] }>();
+  const vn = cornerNormals ? null : m.vertexNormals(true);
   for (let f = 0; f < m.faces; f++) {
     const slot = m.materials.length ? m.matIndex[f] : 0;
     let s = out.get(slot);
-    if (!s) out.set(slot, (s = { pos: [], nrm: [], corners: [], faces: [] }));
+    if (!s) out.set(slot, (s = { pos: [], nrm: [], corners: [], faces: [], cornerIdx: [] }));
     const a = m.faceStart[f], n = m.faceStart[f + 1] - a;
     const fn = cornerNormals ? null : m.faceNormal(f);
     const push = (k: number) => {
@@ -36,6 +39,7 @@ function slotGeometries(m: Mesh, cornerNormals: Float32Array | undefined): Map<n
       else s!.nrm.push(fn![0], fn![1], fn![2]);
       s!.corners.push(v);
       s!.faces.push(f);
+      s!.cornerIdx.push(c);
     };
     for (let k = 1; k + 1 < n; k++) { push(0); push(k); push(k + 1); }
   }
@@ -44,7 +48,7 @@ function slotGeometries(m: Mesh, cornerNormals: Float32Array | undefined): Map<n
     const geo = new BufferGeometry();
     geo.setAttribute("position", new BufferAttribute(new Float32Array(s.pos), 3));
     geo.setAttribute("normal", new BufferAttribute(new Float32Array(s.nrm), 3));
-    res.set(slot, { geo, corners: s.corners, faces: s.faces });
+    res.set(slot, { geo, corners: s.corners, faces: s.faces, cornerIdx: s.cornerIdx });
   }
   return res;
 }
@@ -75,14 +79,15 @@ export function buildNycGroup(ls: Leaf[], opt: RenderOptions): Group {
       if (nm) {
         const packs = Array.from({ length: nm.geoPack.packs }, () => new Float32Array(sg.corners.length * 4));
         for (const [name, sl] of nm.geoPack.slots) {
-          const src = mesh.point.get(name), fsrc = mesh.face.get(name);
-          if (!src && !fsrc) continue;
+          const pa = mesh.point.get(name), fa = mesh.face.get(name), ca = mesh.corner.get(name);
+          const a = pa ?? fa ?? ca;
+          if (!a) continue;
+          const rows = pa ? sg.corners : fa ? sg.faces : sg.cornerIdx;
           const d = packs[sl.pack];
-          sg.corners.forEach((v, i) => {
+          rows.forEach((r, i) => {
             for (let k = 0; k < sl.size; k++) {
-              d[i * 4 + sl.off + k] = src
-                ? src.data[v * src.size + (src.size === 3 ? k : 0)]
-                : fsrc!.data[sg.faces[i] * fsrc!.size + (fsrc!.size === 3 ? k : 0)];
+              // a single float broadcasts; missing components are 0 (alpha 1)
+              d[i * 4 + sl.off + k] = a.size === 1 ? a.data[r] : k < a.size ? a.data[r * a.size + k] : k === 3 ? 1 : 0;
             }
           });
         }

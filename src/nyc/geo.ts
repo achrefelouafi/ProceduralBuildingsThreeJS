@@ -1,9 +1,9 @@
 /**
- * Geometry data for the NYC geometry-nodes evaluator (gn.ts): meshes, point
+ * Geometry data for the geometry-nodes evaluator (gn.ts): meshes, point
  * clouds, poly curves and instances, with named attributes per domain, in
  * Blender Z-up space. Mirrors the parts of Blender's GeometrySet the
- * NYC_CornerBuilding.blend graphs use; arithmetic is float32 (Math.fround)
- * wherever Blender stores floats.
+ * NYC_CornerBuilding.blend and CN_ApartmentBuilding.blend graphs use;
+ * arithmetic is float32 (Math.fround) wherever Blender stores floats.
  */
 export const f32 = Math.fround;
 
@@ -13,11 +13,15 @@ export type Quat = [number, number, number, number];
 /** 4×4 column-major (three.js Matrix4.elements order) */
 export type Mat4 = Float32Array;
 
-export type Domain = "point" | "face" | "instance" | "spline";
+export type Domain = "point" | "face" | "corner" | "instance" | "spline";
 
-/** attribute storage: 1 (float) or 3 (vector) floats per element */
+/**
+ * attribute storage, floats per element: 1 (float / int / bool), 2 (FLOAT2,
+ * e.g. UV maps), 3 (vector) or 4 (RGBA color)
+ */
+export type AttrSize = 1 | 2 | 3 | 4;
 export interface Attr {
-  size: 1 | 3;
+  size: AttrSize;
   data: Float32Array;
 }
 export type AttrMap = Map<string, Attr>;
@@ -37,6 +41,7 @@ export class Mesh {
   materials: (string | null)[];
   point: AttrMap = new Map();
   face: AttrMap = new Map();
+  corner: AttrMap = new Map();
   /** shading hint: flat faces (cubes, caps) vs smooth sides */
   smooth: Uint8Array;
 
@@ -56,7 +61,16 @@ export class Mesh {
   }
   get points(): number { return this.pos.length / 3; }
   get faces(): number { return this.faceStart.length - 1; }
+  get cornerCount(): number { return this.corners.length; }
   face_(i: number): Int32Array { return this.corners.subarray(this.faceStart[i], this.faceStart[i + 1]); }
+  private cornerFaceCache?: Int32Array;
+  /** corner → face index (cached: topology doesn't change once a mesh is in use) */
+  cornerFaces(): Int32Array {
+    if (this.cornerFaceCache?.length === this.corners.length) return this.cornerFaceCache;
+    const out = new Int32Array(this.corners.length);
+    for (let f = 0; f < this.faces; f++) out.fill(f, this.faceStart[f], this.faceStart[f + 1]);
+    return (this.cornerFaceCache = out);
+  }
 
   clone(): Mesh {
     const m = Object.create(Mesh.prototype) as Mesh;
@@ -69,23 +83,51 @@ export class Mesh {
     m.materials = this.materials.slice();
     m.point = cloneAttrs(this.point);
     m.face = cloneAttrs(this.face);
+    m.corner = cloneAttrs(this.corner);
     m.smooth = this.smooth.slice();
     return m;
   }
 
-  faceNormal(i: number): Vec3 {
-    // Newell's method (what BKE uses for n-gons; exact for triangles / planar quads)
-    const f = this.face_(i);
-    let x = 0, y = 0, z = 0;
-    const P = this.pos;
-    for (let k = 0; k < f.length; k++) {
-      const a = f[k] * 3, b = f[(k + 1) % f.length] * 3;
-      x += (P[a + 1] - P[b + 1]) * (P[a + 2] + P[b + 2]);
-      y += (P[a + 2] - P[b + 2]) * (P[a] + P[b]);
-      z += (P[a] - P[b]) * (P[a + 1] + P[b + 1]);
+  /** BKE face_area_calc: area_tri_v3 for triangles, Newell's normal (area_poly_v3) otherwise */
+  faceArea(i: number): number {
+    const f = this.face_(i), P = this.pos;
+    const v = (k: number): Vec3 => [P[f[k] * 3], P[f[k] * 3 + 1], P[f[k] * 3 + 2]];
+    const len = (n: Vec3) => f32(Math.sqrt(f32(f32(f32(n[0] * n[0]) + f32(n[1] * n[1])) + f32(n[2] * n[2]))));
+    if (f.length === 3) {
+      const a = v(0), b = v(1), c = v(2);
+      const n1: Vec3 = [f32(a[0] - b[0]), f32(a[1] - b[1]), f32(a[2] - b[2])];
+      const n2: Vec3 = [f32(b[0] - c[0]), f32(b[1] - c[1]), f32(b[2] - c[2])];
+      return f32(len([f32(f32(n1[1] * n2[2]) - f32(n1[2] * n2[1])), f32(f32(n1[2] * n2[0]) - f32(n1[0] * n2[2])),
+        f32(f32(n1[0] * n2[1]) - f32(n1[1] * n2[0]))]) * 0.5);
     }
-    const l = Math.hypot(x, y, z) || 1;
-    return [f32(x / l), f32(y / l), f32(z / l)];
+    const n: Vec3 = [0, 0, 0];
+    for (let k = 0; k < f.length; k++) {
+      const a = v((k + f.length - 1) % f.length), b = v(k);
+      n[0] = f32(n[0] + f32(f32(a[1] - b[1]) * f32(a[2] + b[2])));
+      n[1] = f32(n[1] + f32(f32(a[2] - b[2]) * f32(a[0] + b[0])));
+      n[2] = f32(n[2] + f32(f32(a[0] - b[0]) * f32(a[1] + b[1])));
+    }
+    return f32(len(n) * 0.5);
+  }
+
+  /**
+   * BKE normals_calc_faces (the face normal cache fields read), float for
+   * float: Newell's method for every face, then normalize_v3 (v · 1/length).
+   * The last bits decide ties such as 45° faces in box projections.
+   */
+  faceNormal(i: number): Vec3 {
+    const f = this.face_(i), P = this.pos;
+    const n: Vec3 = [0, 0, 0];
+    for (let k = 0; k < f.length; k++) {
+      const a = f[(k + f.length - 1) % f.length] * 3, b = f[k] * 3;
+      n[0] = f32(n[0] + f32(f32(P[a + 1] - P[b + 1]) * f32(P[a + 2] + P[b + 2])));
+      n[1] = f32(n[1] + f32(f32(P[a + 2] - P[b + 2]) * f32(P[a] + P[b])));
+      n[2] = f32(n[2] + f32(f32(P[a] - P[b]) * f32(P[a + 1] + P[b + 1])));
+    }
+    const d = f32(f32(f32(n[0] * n[0]) + f32(n[1] * n[1])) + f32(n[2] * n[2]));
+    if (!(d > 1e-35)) return [0, 0, 1];
+    const inv = f32(1 / f32(Math.sqrt(d)));
+    return [f32(n[0] * inv), f32(n[1] * inv), f32(n[2] * inv)];
   }
   faceCenter(i: number): Vec3 {
     const f = this.face_(i);
@@ -93,11 +135,15 @@ export class Mesh {
     for (const v of f) { x += this.pos[v * 3]; y += this.pos[v * 3 + 1]; z += this.pos[v * 3 + 2]; }
     return [f32(x / f.length), f32(y / f.length), f32(z / f.length)];
   }
-  /** angle-weighted vertex normals (BKE mesh_normals) */
-  vertexNormals(): Float32Array {
+  /**
+   * angle-weighted vertex normals (BKE mesh_normals); smoothOnly leaves flat
+   * faces out, like the corner normals of smooth faces next to sharp ones
+   */
+  vertexNormals(smoothOnly = false): Float32Array {
     const out = new Float32Array(this.pos.length);
     const P = this.pos;
     for (let i = 0; i < this.faces; i++) {
+      if (smoothOnly && !this.smooth[i]) continue;
       const f = this.face_(i);
       const n = this.faceNormal(i);
       for (let k = 0; k < f.length; k++) {
@@ -139,6 +185,12 @@ export class Curves {
   /** "minimum_twist" | "z_up" */
   normalMode: string[];
   point: AttrMap = new Map();
+  /**
+   * Blender's Fill Curve triangulation of these exact curves (String to Curves
+   * glyphs): triangles as point indices, or into pos when the fill added
+   * vertices. Not copied by clone(), so any edit falls back to our own fill.
+   */
+  fill: { tris: ArrayLike<number>; pos?: ArrayLike<number> } | null = null;
   constructor(pos: ArrayLike<number>, splineStart: ArrayLike<number>) {
     this.pos = Float32Array.from(pos);
     this.splineStart = Int32Array.from(splineStart);
@@ -340,4 +392,19 @@ export function uvSphere(segments: number, rings: number, r: number): Mesh {
     for (let i = 0; i < segments; i++) faces.push([ringV(j, i), ringV(j + 1, i), ringV(j + 1, i + 1), ringV(j, i + 1)]);
   for (let i = 0; i < segments; i++) faces.push([bottom, ringV(rings - 1, i + 1), ringV(rings - 1, i)]);
   return new Mesh(pos, faces, [], true);
+}
+
+/** Mesh Grid (BKE create_grid_mesh): x-major vertices, quads [v, v + vy, v + vy + 1, v + 1] */
+export function grid(sizeX: number, sizeY: number, vertsX: number, vertsY: number): Mesh {
+  const ex = vertsX - 1, ey = vertsY - 1;
+  const dx = ex === 0 ? 0 : f32(sizeX / ex), dy = ey === 0 ? 0 : f32(sizeY / ey);
+  const sx = f32(ex / 2), sy = f32(ey / 2);
+  const pos: number[] = [];
+  for (let x = 0; x < vertsX; x++) for (let y = 0; y < vertsY; y++) pos.push(f32(f32(x - sx) * dx), f32(f32(y - sy) * dy), 0);
+  const faces: number[][] = [];
+  for (let x = 0; x < ex; x++) for (let y = 0; y < ey; y++) {
+    const v = x * vertsY + y;
+    faces.push([v, v + vertsY, v + vertsY + 1, v + 1]);
+  }
+  return new Mesh(pos, faces);
 }

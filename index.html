@@ -6,27 +6,149 @@
     <title>Procedural Building Configurator</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e12; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #eceef1; }
       #app { width: 100vw; height: 100vh; display: block; }
-      #loading {
+
+      /* ---- preloader: a white massing model that assembles itself as it loads ----
+         blocks extrude with the progress (--p, set by src/preloader.ts); the idle
+         animations are transform / opacity only, so they keep running on the
+         compositor while the main thread evaluates the building graphs */
+      #preloader {
+        --p: 0;
         position: fixed;
         inset: 0;
-        z-index: 70;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font: 11px/1.5 ui-monospace, "SF Mono", monospace;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: rgba(255, 255, 255, 0.55);
-        background: #0b0e12;
-        pointer-events: none;
+        z-index: 10000; /* above the GUI */
+        display: grid;
+        place-items: center;
+        background: radial-gradient(110% 80% at 50% 40%, #f7f8f9 0%, #eceef1 55%, #e2e5e9 100%);
+        color: #2b3038;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        transition: opacity 1.2s cubic-bezier(.4, 0, .2, 1), visibility 1.2s;
+        overflow: hidden;
       }
+      #preloader.pl-out { opacity: 0; visibility: hidden; pointer-events: none; }
+      .pl-wrap { width: min(560px, 86vw); display: flex; flex-direction: column; align-items: stretch; gap: 28px; }
+      .pl-city { position: relative; height: 150px; }
+      .pl-sky { position: absolute; inset: 0 0 1px 0; display: flex; align-items: flex-end; gap: 3px; }
+      .pl-b {
+        /* a clay block lit from the left: bright face, a shaded return */
+        position: relative; flex: 1 1 0;
+        background: linear-gradient(90deg, #ffffff 0%, #f3f4f6 62%, #d9dde2 62%, #cfd4da 100%);
+        box-shadow: 0 0 0 0.5px rgba(40, 48, 60, .06);
+        transform-origin: 50% 100%;
+        transform: scaleY(clamp(0, calc((var(--p) - var(--t)) * 5), 1));
+        transition: transform .9s cubic-bezier(.2, .9, .25, 1);
+      }
+      .pl-b > i {
+        /* the window rhythm: faint reveals */
+        position: absolute; inset: 7px 4px 4px 3px; right: 42%;
+        background-image: radial-gradient(circle, rgba(120, 130, 145, .38) 0 0.9px, transparent 1.3px);
+        background-size: 5px 7px;
+      }
+      .pl-b.pl-hero {
+        /* the building being configured: the one that is rendered, not clay */
+        background: linear-gradient(90deg, #d8b99a 0%, #cfae8d 62%, #a8876a 62%, #9c7c60 100%);
+      }
+      .pl-ground {
+        position: absolute; left: -12%; right: -12%; bottom: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(60, 70, 85, .35) 25%, rgba(60, 70, 85, .5) 50%, rgba(60, 70, 85, .35) 75%, transparent);
+      }
+      .pl-shadow {
+        /* soft contact shadow under the model */
+        position: absolute; left: 4%; right: 4%; bottom: -10px; height: 14px;
+        background: radial-gradient(50% 50% at 50% 0%, rgba(40, 48, 60, .16), transparent 70%);
+      }
+      .pl-title {
+        font-size: 12px; letter-spacing: .42em; text-transform: uppercase; font-weight: 600;
+        text-align: center; color: #262b33;
+      }
+      .pl-sub {
+        margin-top: 8px; display: flex; justify-content: center; gap: 18px;
+        font-size: 10px; letter-spacing: .3em; text-transform: uppercase; color: #8a929e;
+      }
+      .pl-bar { position: relative; height: 1px; background: rgba(40, 48, 60, .12); overflow: hidden; }
+      .pl-bar > i {
+        position: absolute; inset: 0; transform-origin: 0 50%; transform: scaleX(0);
+        background: #2b3038;
+      }
+      .pl-bar > b { /* a glint sweeping along the bar */
+        position: absolute; top: -1px; bottom: -1px; width: 22%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .9), transparent);
+        animation: pl-sweep 1.7s ease-in-out infinite;
+      }
+      .pl-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: -14px; }
+      .pl-step {
+        font: 10px/1.4 ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: .14em;
+        text-transform: uppercase; color: #7d8591; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        max-width: 78%;
+      }
+      .pl-pct { font-size: 26px; font-weight: 200; font-variant-numeric: tabular-nums; color: #1f242b; letter-spacing: .02em; }
+      .pl-pct small { font-size: 12px; color: #8a929e; margin-left: 2px; }
+      #preloader.pl-fail .pl-step { color: #c0392b; white-space: normal; }
+      @keyframes pl-sweep { from { transform: translateX(-120%); } to { transform: translateX(560%); } }
+      @media (prefers-reduced-motion: reduce) {
+        .pl-b { transition: none; }
+        .pl-bar > b { animation: none; opacity: 0; }
+      }
+
+      /* ---- a graph building re-evaluating after a slider change ---- */
+      #busy {
+        position: fixed; left: 50%; top: 14px; z-index: 60; transform: translate(-50%, -8px);
+        display: flex; align-items: center; gap: 9px; padding: 7px 14px 7px 10px; border-radius: 999px;
+        background: rgba(255, 255, 255, .88); border: 1px solid rgba(40, 48, 60, .1);
+        box-shadow: 0 6px 20px rgba(30, 40, 55, .12);
+        color: #2b3038; font: 11px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .06em;
+        opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s;
+        backdrop-filter: blur(6px);
+      }
+      #busy.on { opacity: 1; transform: translate(-50%, 0); }
+      #busy > i {
+        width: 12px; height: 12px; border-radius: 50%;
+        border: 1.5px solid rgba(43, 48, 56, .18); border-top-color: #2b3038;
+        animation: busy-spin .7s linear infinite; will-change: transform;
+      }
+      @keyframes busy-spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
     <div id="app"></div>
-    <div id="loading">loading kit…</div>
+    <div id="preloader" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Loading">
+      <div class="pl-wrap">
+        <div class="pl-city">
+          <div class="pl-shadow"></div>
+          <div class="pl-sky" id="pl-sky"></div>
+          <div class="pl-ground"></div>
+        </div>
+        <div>
+          <div class="pl-title">Procedural Buildings</div>
+          <div class="pl-sub"><span>Paris</span><span>New York</span><span>中国</span></div>
+        </div>
+        <div class="pl-bar"><i id="pl-fill"></i><b></b></div>
+        <div class="pl-row"><span class="pl-step" id="pl-step">streaming assets</span><span class="pl-pct" id="pl-pct">0<small>%</small></span></div>
+      </div>
+    </div>
+    <div id="busy"><i></i><span>evaluating the graph…</span></div>
+    <script>
+      // the preloader's massing model, before the app module loads: each block
+      // extrudes once the progress passes its threshold (--t)
+      (function () {
+        var sky = document.getElementById("pl-sky"), seed = 7, n = 28, hero = 14;
+        function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+        for (var i = 0; i < n; i++) {
+          var b = document.createElement("div");
+          var mid = 1 - Math.abs(i - (n - 1) / 2) / (n / 2); // taller towards the middle
+          var h = i === hero ? 62 : 18 + rnd() * 40 + mid * mid * 55 * rnd();
+          b.className = "pl-b" + (i === hero ? " pl-hero" : "");
+          b.style.height = h.toFixed(0) + "%";
+          b.style.flexGrow = (i === hero ? 2.2 : 0.6 + rnd() * 1.1).toFixed(2);
+          // the building first, then the city outward from it
+          var t = i === hero ? 0 : 0.04 + (Math.abs(i - hero) / n) * 0.7 + rnd() * 0.08;
+          b.style.setProperty("--t", t.toFixed(3));
+          if (i !== hero) b.appendChild(document.createElement("i"));
+          sky.appendChild(b);
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
