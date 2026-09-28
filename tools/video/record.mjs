@@ -17,6 +17,7 @@ import { dirname } from "node:path";
 import { openApp, virtualTime } from "./app.mjs";
 import { installOverlay } from "./overlay.mjs";
 import { STORIES } from "./stories.mjs";
+import { cameraAt as camAt, clamp01, EASE, fadeWin, rowState, trackValue } from "./timeline.mjs";
 
 const argv = process.argv.slice(2);
 const flag = (name, def) => {
@@ -31,115 +32,16 @@ if (!story || !dist || !out) {
 }
 const FPS = 60;
 const STEP = Number(flag("step", 1));
-const SCALE = Number(flag("scale", 1));
-const W = 1920, H = 1080;
+const SCALE = Number(flag("scale", story.scale ?? 1));
+const [W, H] = story.size ?? [1920, 1080];
+const cameraAt = (t, b) => camAt(story.cam, t, b, W / H);
 const T0 = Number(flag("from", 0));
 const T1 = Math.min(Number(flag("to", story.duration)), story.duration);
 const stills = flag("stills", "")?.split(",").filter(Boolean).map(Number) ?? [];
 
-// ---------------------------------------------------------------- timeline math
-
-const clamp01 = x => Math.min(Math.max(x, 0), 1);
-const EASE = {
-  linear: x => x,
-  inOut: x => x * x * x * (x * (x * 6 - 15) + 10),
-  out: x => 1 - (1 - x) ** 3,
-  in: x => x * x * x,
-};
-const deg = r => (r * 180) / Math.PI;
-
-/** a param track's value at t: keys [t, value, how], how = "cut" (jump) or an ease (tween from the previous key) */
-function trackValue(tr, t) {
-  const k = tr.keys;
-  if (t < k[0][0]) return k[0][1];
-  let i = 0;
-  while (i + 1 < k.length && k[i + 1][0] <= t) i++;
-  const next = k[i + 1];
-  if (next && next[2] !== "cut" && typeof next[1] === "number") {
-    const [ta, va] = k[i];
-    const v = va + (next[1] - va) * EASE[next[2]](clamp01((t - ta) / (next[0] - ta)));
-    return tr.int ? Math.round(v) : v;
-  }
-  return k[i][1];
-}
-
-/** monotone cubic (no overshoot) through keys [{t, v}], flat at the ends */
-function monotone(keys, t) {
-  const n = keys.length;
-  if (n === 1 || t <= keys[0].t) return keys[0].v;
-  if (t >= keys[n - 1].t) return keys[n - 1].v;
-  let i = 0;
-  while (t > keys[i + 1].t) i++;
-  const d = j => (keys[j + 1].v - keys[j].v) / (keys[j + 1].t - keys[j].t);
-  const tan = j => {
-    if (j === 0 || j === n - 1 || keys[j].hold) return 0;
-    const a = d(j - 1), b = d(j);
-    return a * b <= 0 ? 0 : 2 / (1 / a + 1 / b);
-  };
-  const a = keys[i], b = keys[i + 1], h = b.t - a.t, s = (t - a.t) / h;
-  const s2 = s * s, s3 = s2 * s;
-  return (2 * s3 - 3 * s2 + 1) * a.v + (s3 - 2 * s2 + s) * h * tan(i) + (-2 * s3 + 3 * s2) * b.v + (s3 - s2) * h * tan(i + 1);
-}
-
-/** camera at t from the story's keys (split into shots at `cut`), values may be functions of the bounds */
-function cameraAt(t, b) {
-  const keys = story.cam;
-  let start = 0;
-  for (let i = 0; i < keys.length; i++) if (keys[i].cut && keys[i].t <= t) start = i;
-  let end = keys.length;
-  for (let i = start + 1; i < keys.length; i++) if (keys[i].cut) { end = i; break; }
-  const shot = keys.slice(start, end);
-  const val = (k, name, def) => {
-    const v = k[name] ?? def;
-    return typeof v === "function" ? v(b) : v;
-  };
-  const ch = name => monotone(shot.map(k => ({ t: k.t, hold: k.hold, v: resolved(k)[name] })), t);
-  // every key resolved against the current bounds (distance from `fit` if given)
-  const cache = new Map();
-  function resolved(k) {
-    let r = cache.get(k);
-    if (!r) {
-      const fov = val(k, "fov", 32);
-      const dist = k.fit !== undefined ? (b.r / Math.sin((fov * Math.PI) / 360)) * val(k, "fit") : val(k, "dist", 40);
-      r = { az: val(k, "az", 0), el: val(k, "el", 10), dist, fov, tx: val(k, "tx", 0), ty: val(k, "ty", b.h * 0.42), tz: val(k, "tz", 0), sx: val(k, "sx", 0) };
-      cache.set(k, r);
-    }
-    return r;
-  }
-  const az = (ch("az") * Math.PI) / 180, el = (ch("el") * Math.PI) / 180, dist = ch("dist");
-  // pan sideways along the camera's right vector (cos az, 0, −sin az)
-  const sx = ch("sx");
-  const tx = ch("tx") + Math.cos(az) * sx, ty = ch("ty"), tz = ch("tz") - Math.sin(az) * sx;
-  return {
-    p: [tx + Math.sin(az) * Math.cos(el) * dist, ty + Math.sin(el) * dist, tz + Math.cos(az) * Math.cos(el) * dist],
-    t: [tx, ty, tz],
-    fov: ch("fov"),
-  };
-}
-
-// ---------------------------------------------------------------- overlay state
-
-const fadeWin = (t, t0, t1, fin = 0.35, fout = 0.3) => clamp01(Math.min((t - t0) / fin, (t1 - t) / fout));
-const fmtRow = (r, v) => {
-  switch (r.type) {
-    case "int": case "seed": return { text: String(Math.round(v)), frac: r.type === "int" ? (v - r.min) / (r.max - r.min) : undefined };
-    case "float": return { text: Number(v).toFixed(r.digits ?? 2), frac: (v - r.min) / (r.max - r.min) };
-    case "pct": return { text: String(Math.round(v * 100)), unit: "%", frac: v };
-    case "deg": return { text: deg(v).toFixed(0), unit: "°", frac: (v - r.min) / (r.max - r.min) };
-    case "m": return { text: Number(v).toFixed(r.digits ?? 1), unit: " m", frac: (v - r.min) / (r.max - r.min) };
-    case "bool": return { on: !!v, text: v ? "ON" : "OFF" };
-    case "menu": return { text: r.labels?.[v] ?? String(v), options: r.options.map(o => r.labels?.[o] ?? o) };
-    case "color": {
-      const c = v.map(x => Math.round(255 * Math.min(1, x <= 0.0031308 ? x * 12.92 : 1.055 * x ** (1 / 2.4) - 0.055)));
-      const hex = "#" + c.slice(0, 3).map(x => x.toString(16).padStart(2, "0")).join("");
-      return { css: hex, text: r.names?.[hex] ?? hex.toUpperCase() };
-    }
-    case "text": return { text: String(v) };
-  }
-};
-
 function overlayAt(t, applied, changedAt) {
   const s = { progress: t / story.duration, brand: 1 };
+  if (story.overlay === false) return s;
   for (const [key, card] of [["title", story.title], ["outro", story.outro]]) {
     if (!card || t < card.t0 || t > card.t1) continue;
     const a = fadeWin(t, card.t0, card.t1, card.fin ?? 0.6, card.fout ?? 0.5);
@@ -155,16 +57,7 @@ function overlayAt(t, applied, changedAt) {
     s.card = {
       opacity: a, dy: (1 - EASE.out(inT)) * 36,
       label: seg.label, counter: `${String(segs.indexOf(seg) + 1).padStart(2, "0")} / ${String(segs.length).padStart(2, "0")}`,
-      rows: seg.rows.map(r => {
-        const v = applied[r.key];
-        const since = t - (changedAt[r.key] ?? -9);
-        const row = { name: r.name, type: r.type === "pct" || r.type === "deg" || r.type === "m" || r.type === "seed" ? "num" : r.type, ...fmtRow(r, v) };
-        row.pop = since < 0.18 ? 1 - since / 0.18 : 0;
-        if (r.type === "bool") row.knob = v ? EASE.out(clamp01(since / 0.2)) : 1 - EASE.out(clamp01(since / 0.2));
-        if (r.type === "text") row.caret = Math.floor(t * 2.2) % 2 === 0 || since < 0.5 ? 1 : 0;
-        if (r.type === "menu") row.options = r.options.map(o => r.labels?.[o] ?? o);
-        return row;
-      }),
+      rows: seg.rows.map(r => rowState(r, applied[r.key], t - (changedAt[r.key] ?? -9), t)),
     };
   }
   return s;
@@ -177,7 +70,11 @@ const { browser, page } = await openApp({ dist, width: W, height: H, scale: SCAL
 const apply = story.kind === "French" ? "__setParams" : "__setNyc";
 await page.evaluate(k => new Promise(res => { window.__building(k).then(res); }), story.kind);
 await page.evaluate(() => window.__orbit(false));
-await page.evaluate(installOverlay, story.theme);
+if (story.overlay === false) {
+  // a bare panel: the split-screen compositor draws the graphics
+  await page.addStyleTag({ content: ".lil-gui, #busy, #preloader { display: none !important; }" });
+  await page.evaluate(() => { window.__ov = () => {}; });
+} else await page.evaluate(installOverlay, story.theme);
 await page.evaluate(() => {
   const s = window.__three.studio;
   s.setMood("Architectural", 0);
@@ -273,7 +170,7 @@ await mkdir(dirname(out), { recursive: true });
 const ff = spawn("ffmpeg", [
   "-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(FPS / STEP), "-c:v", "mjpeg", "-i", "-",
   ...(SCALE !== 1 ? ["-vf", `scale=${W}:${H}:flags=lanczos`] : []),
-  "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p", "-profile:v", "high",
+  "-c:v", "libx264", "-preset", "slow", "-crf", String(story.crf ?? 16), "-pix_fmt", "yuv420p", "-profile:v", "high",
   "-movflags", "+faststart", "-r", String(FPS / STEP), out,
 ], { stdio: ["pipe", "inherit", "inherit"] });
 const ffDone = new Promise((res, rej) => ff.on("close", c => (c === 0 ? res() : rej(new Error(`ffmpeg exited ${c}`)))));

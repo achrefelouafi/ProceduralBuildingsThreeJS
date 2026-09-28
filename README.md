@@ -384,3 +384,30 @@ however long that takes (~3 s for the Chinese graph), so the video stays smooth.
 Each frame is captured and piped to ffmpeg (libx264). `--from` / `--to` record
 a time range; `node tools/video/probe.mjs <dist> <kind> <json params> <material regex>`
 prints where a material's geometry sits on the stage, for framing shots.
+
+Two 3-second hooks go with them:
+
+- **Split screen** ([tools/video/split.mjs](tools/video/split.mjs)): Paris,
+  New York and 中国 side by side in portrait panels, each changing fast (floors,
+  footprint, colour) until all three switch to blue hour together, under a
+  "Blender Geometry Nodes → three.js" header with a live parameter chip per
+  panel. It records the panels (stories `split_fr` / `split_ny` / `split_cn`)
+  in parallel, renders the graphics as transparent frames and stacks it all
+  with ffmpeg: `node tools/video/split.mjs <dist> out/split.mp4`.
+- **Blender** ([tools/video/blender_record.py](tools/video/blender_record.py) +
+  [blender_compose.mjs](tools/video/blender_compose.mjs)): Blender's own UI
+  (Geometry Nodes workspace, Material Preview) with the three buildings side by
+  side while their modifier inputs change. The script appends the Paris and
+  Chinese buildings next to New York, drives the inputs from a timer and saves a
+  window screenshot per frame; the compositor adds the dragging cursor, the
+  field highlight, a zoom and the title card. It opens a fullscreen Blender
+  window for a few minutes (here on the second monitor):
+
+  ```powershell
+  & $blender blender\NYC_CornerBuilding.blend --factory-startup --window-geometry 0 -1080 1920 1080 `
+    --python tools\video\blender_record.py -- out\blender_frames
+  node tools\video\blender_compose.mjs out\blender_frames out\blender.mp4
+  ```
+
+The logos in `tools/video/assets/` are the Blender app icon and the three.js
+icon.

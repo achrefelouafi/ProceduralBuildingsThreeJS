@@ -480,4 +480,87 @@ const cn = (() => {
   };
 })();
 
-export const STORIES = { french, nyc, cn };
+// =====================================================================================
+// SPLIT — the 3-second hook: three portrait panels side by side (split.mjs
+// composites them and draws the graphics). Every change reads at whole-building
+// scale: height, footprint, colour, then the lights come on together.
+// =====================================================================================
+
+const SPLIT_T = 3;
+const LIGHTS = 1.95; // all three go to blue hour
+const FADE = 0.1;
+// the city reflections follow the crossfade (the app re-captures them only once a fade has settled)
+const recapture = [...Array(Math.ceil((FADE + 0.05) * 60))].map((_, i) => ({ t: LIGHTS + i / 60, js: "window.__three.studio.captureEnvironment()" }));
+const panel = (kind, P, cam, extra = {}) => ({
+  kind, duration: SPLIT_T, size: [640, 1080], scale: 2, overlay: false, crf: 10, boundsLag: 0.22,
+  params: P.build(), segments: [], cam, events: [{ t: LIGHTS, mood: "Blue Hour", fade: FADE }, ...recapture], ...extra,
+});
+
+const splitFr = (() => {
+  const P = timeline();
+  P.set(0, { baysX: 5, baysY: 3, floors: 2, dormers: true, balcony: "exterior", detailPattern: "same", detailStyle: "refends", detailSeed: 0, detailDepth: 1.2 });
+  P.tween(0.02, 0.74, { floors: 10 }, "linear");
+  P.tween(0.8, 1.4, { baysX: 7, baysY: 6 }, "linear");
+  P.seq(1.48, 0.16, "detailStyle", ["ornamented", "pilasters", "ornamented"]);
+  ["floors", "baysX", "baysY"].forEach(k => P.opts(k, { int: true }));
+  return panel("French", P, [
+    { t: 0, az: 22, el: 5, fit: 1.3, ty: b => b.h * 0.47, fov: 34 },
+    { t: SPLIT_T, az: 36, el: 9, fit: 1.18, ty: b => b.h * 0.47, fov: 34 },
+  ]);
+})();
+
+const splitNy = (() => {
+  const P = timeline();
+  P.set(0, { "Building Height": 0, "Floor Count": 6, "Building Width": 26, "Building Depth": 18, "Corner Angle": rad(90), "AC Probability": 0.15, "Window Light Probability": 0 });
+  P.tween(0.02, 0.74, { "Floor Count": 16 }, "linear");
+  P.tween(0.8, 1.4, { "Corner Angle": rad(62) });
+  P.tween(1.43, 1.9, { "AC Probability": 1 });
+  P.tween(2.0, 2.55, { "Window Light Probability": 1 }, "linear");
+  P.opts("Floor Count", { int: true });
+  return panel("New York", P, [
+    { t: 0, az: -30, el: 5, fit: 1.24, ty: b => b.h * 0.47, fov: 34 },
+    { t: SPLIT_T, az: -44, el: 9, fit: 1.1, ty: b => b.h * 0.47, fov: 34 },
+  ]);
+})();
+
+const splitCn = (() => {
+  const P = timeline();
+  P.set(0, { Floors: 5, Width: 18, Depth: 13, "Facade Finish": "Stucco", "Wall Tint": [1, 1, 1, 1], "Balcony Probability": 0.35, "Lit Window Probability": 0 });
+  P.tween(0.02, 0.74, { Floors: 13 }, "linear");
+  P.set(0.8, { "Facade Finish": "Ceramic Tile", "Wall Tint": lin("#f2c9c0") });
+  P.set(1.03, { "Wall Tint": lin("#cfe6d6") });
+  P.set(1.26, { "Wall Tint": lin("#f6e3a8") });
+  P.set(1.45, { "Wall Tint": lin("#f3d6cc") });
+  P.tween(1.48, 1.9, { "Balcony Probability": 1 });
+  P.tween(2.0, 2.55, { "Lit Window Probability": 1 }, "linear");
+  P.opts("Floors", { int: true });
+  ["Balcony Probability", "Lit Window Probability"].forEach(k => P.opts(k, { every: 3 }));
+  return panel("Chinese", P, [
+    { t: 0, az: -32, el: 5, fit: 1.3, ty: b => b.h * 0.47, fov: 34 },
+    { t: SPLIT_T, az: -46, el: 9, fit: 1.18, ty: b => b.h * 0.47, fov: 34 },
+  ]);
+})();
+
+/** the compositor's layout: panels left to right, and what each panel's chip shows when */
+export const SPLIT = {
+  duration: SPLIT_T,
+  panels: [
+    { story: "split_fr", city: "PARIS", accent: "#e2c08d", chips: [
+      { t: 0, key: "floors", name: "Floors", type: "int", min: 2, max: 12 },
+      { t: 0.78, name: "Bays", text: v => `${v.baysX} × ${v.baysY}`, frac: v => (v.baysX + v.baysY - 2) / 38, keys: ["baysX", "baysY"] },
+      { t: 1.45, key: "detailStyle", name: "Detail style", type: "menu", options: ["refends", "pilasters", "ornamented"], labels: { refends: "Refends", pilasters: "Pilasters", ornamented: "Ornamented" } },
+      { t: LIGHTS, name: "Mood", text: () => "Blue Hour" }] },
+    { story: "split_ny", city: "NEW YORK", accent: "#ff7a45", chips: [
+      { t: 0, key: "Floor Count", name: "Floors", type: "int", min: 2, max: 20 },
+      { t: 0.78, key: "Corner Angle", name: "Corner angle", type: "deg", min: rad(45), max: rad(150) },
+      { t: 1.43, key: "AC Probability", name: "AC units", type: "pct" },
+      { t: LIGHTS, key: "Window Light Probability", name: "Lit windows", type: "pct" }] },
+    { story: "split_cn", city: "中国", accent: "#ff4d4d", chips: [
+      { t: 0, key: "Floors", name: "Floors", type: "int", min: 2, max: 16 },
+      { t: 0.78, key: "Wall Tint", name: "Wall tint", type: "color" },
+      { t: 1.48, key: "Balcony Probability", name: "Balconies", type: "pct" },
+      { t: LIGHTS, key: "Lit Window Probability", name: "Lit windows", type: "pct" }] },
+  ],
+};
+
+export const STORIES = { french, nyc, cn, split_fr: splitFr, split_ny: splitNy, split_cn: splitCn };
