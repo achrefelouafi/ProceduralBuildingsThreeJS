@@ -48,7 +48,7 @@ controls.maxPolarAngle = Math.PI * 0.51; // stay above the stage floor
 controls.minDistance = 2;
 controls.maxDistance = 300;
 
-// cinematic post: GTAO → DoF → bloom → tone map → film grade
+// cinematic post: GTAO → DoF → tone map → film grade
 const post = new PostFX(renderer, scene, camera);
 // the lighting set: backdrop, stage, light rig, height fog, moods
 const studio = new Studio(scene, renderer, post);

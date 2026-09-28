@@ -234,7 +234,7 @@ brings no sidewalk of its own).
   Day*, *Neon Night*. Each is a complete "Look": key / fill / rim lights (color,
   intensity, azimuth, elevation, shadow softness), hemisphere bounce, IBL, facade
   uplights, room brightness, sky, height haze, key on the city, tone mapping
-  (ACES / AgX / Neutral), bloom and grade. Switching moods crossfades every value,
+  (ACES / AgX / Neutral) and grade. Switching moods crossfades every value,
   and every value is editable live under **🎬 lighting set**.
 - **Light rig**: key (directional, 4k soft PCF shadows fitted to the building,
   long enough for a low sun), fill, a rim spot with an optional **volumetric
@@ -245,7 +245,7 @@ brings no sidewalk of its own).
   material gets it.
 - **Post** ([src/postfx.ts](src/postfx.ts)): GTAO ambient occlusion (glass,
   curtains, particles and the beam are excluded), depth of field with autofocus
-  on the orbit target, bloom, the mood's tone mapping, and a film grade (white
+  on the orbit target, the mood's tone mapping, and a film grade (white
   balance, split toning, contrast, saturation, chromatic aberration, vignette,
   grain, animated letterbox off / 1.85 / 2.39 / 2.76 : 1).
 - **Camera** ([src/shots.ts](src/shots.ts)): *Hero ¾*, *Street level*,
@@ -362,3 +362,25 @@ face centers, UVMap and Col with Blender's. It prints
 `node tools/nyc/screenshot_nyc.mjs <url> <outDir> [shot | cam=px,py,pz,tx,ty,tz] [mood] [json params]`
 takes headless screenshots of the New York building, and
 `node tools/cn/screenshot_cn.mjs` (same arguments) of the Chinese building.
+
+## Showcase videos
+
+[tools/video/](tools/video/) records one 1080p60 showcase video per building:
+a hook (the building morphing under its title), one segment per parameter
+group with its own camera move and a card showing the live values, a lighting
+finale and an outro. The storyboards (parameter keyframes, camera keys, moods,
+weather) are in [tools/video/stories.mjs](tools/video/stories.mjs).
+
+```sh
+npx vite build --outDir <dist>
+node tools/video/record.mjs french <dist> out/paris.mp4     # or nyc, cn
+node tools/video/record.mjs cn <dist> out/cn.mp4 --stills 5,12.5,30   # single frames, to check framing
+```
+
+The app runs in headless Chrome, served straight from `<dist>`, on a virtual
+clock: `requestAnimationFrame` only fires when the recorder advances it by
+exactly 1/60 s. A frame whose parameters change rebuilds the building first,
+however long that takes (~3 s for the Chinese graph), so the video stays smooth.
+Each frame is captured and piped to ffmpeg (libx264). `--from` / `--to` record
+a time range; `node tools/video/probe.mjs <dist> <kind> <json params> <material regex>`
+prints where a material's geometry sits on the stage, for framing shots.

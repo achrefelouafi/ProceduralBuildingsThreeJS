@@ -14,6 +14,10 @@ interface Part {
   material: string;
 }
 
+/** whether a column-major 4×4 collapses an axis */
+const flat = (m: number[]) =>
+  [0, 4, 8].some(c => m[c] * m[c] + m[c + 1] * m[c + 1] + m[c + 2] * m[c + 2] < 1e-8);
+
 export class Kit {
   private parts = new Map<string, Part[]>();
   private warned = new Set<string>();
@@ -43,6 +47,9 @@ export class Kit {
     const group = new Group();
     const byKey = new Map<string, Matrix4[]>();
     for (const inst of instances) {
+      // a zero-scale axis (Detail Depth 0) has nothing to show, and three's
+      // instanced normal divides by each axis' squared length: NaN pixels
+      if (flat(inst.m)) continue;
       let list = byKey.get(inst.key);
       if (!list) byKey.set(inst.key, (list = []));
       list.push(new Matrix4().fromArray(inst.m));

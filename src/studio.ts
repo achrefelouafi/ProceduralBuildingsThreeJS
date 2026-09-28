@@ -16,7 +16,7 @@
  *    lightning flash light for storms;
  *  - atmosphere: analytic exponential HEIGHT fog (thick at street level, thin
  *    at the cornice) patched into three's fog chunks, so every material gets it;
- *  - post: bloom + film grade values (PostFX) are part of the Look too.
+ *  - post: the film grade values (PostFX) are part of the Look too.
  *
  * Moods crossfade: every number and colour in the Look is interpolated.
  * Lights are placed from azimuth/elevation around the live building bounds.
@@ -98,7 +98,6 @@ export interface Look {
   fogColor: string; fogDensity: number; fogFalloff: number;
   uplightColor: string; uplights: number;
   interior: number;
-  bloom: number; bloomRadius: number; bloomThreshold: number;
   contrast: number; saturation: number; vignette: number; grain: number;
   temperature: number; shadowTint: string; highlightTint: string; splitTone: number;
   // sky: sun / moon disk (on the key), stars, cloud deck
@@ -124,7 +123,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#edf0f3", fogDensity: 0.0012, fogFalloff: 0.03,
     uplightColor: "#ffd9a8", uplights: 0,
     interior: 0.8,
-    bloom: 0.06, bloomRadius: 0.4, bloomThreshold: 1,
     contrast: 1.08, saturation: 1.02, vignette: 0.1, grain: 0.005,
     temperature: 0, shadowTint: "#9aa0a8", highlightTint: "#ffffff", splitTone: 0.03,
     sun: 0, stars: 0, clouds: 0.16, cloudColor: "#ffffff",
@@ -140,7 +138,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#161b26", fogDensity: 0.012, fogFalloff: 0.08,
     uplightColor: "#ffd9a8", uplights: 0,
     interior: 1.5,
-    bloom: 0.28, bloomRadius: 0.6, bloomThreshold: 0.85,
     contrast: 1.08, saturation: 1.0, vignette: 0.38, grain: 0.03,
     temperature: 0, shadowTint: "#1b2a3a", highlightTint: "#ffe2c0", splitTone: 0.25,
     sun: 0, stars: 0.25, clouds: 0.12, cloudColor: "#2b3446",
@@ -156,7 +153,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#4a3530", fogDensity: 0.006, fogFalloff: 0.06,
     uplightColor: "#ffd9a8", uplights: 0,
     interior: 0.9,
-    bloom: 0.35, bloomRadius: 0.7, bloomThreshold: 0.8,
     contrast: 1.08, saturation: 1.05, vignette: 0.34, grain: 0.03,
     temperature: 0.06, shadowTint: "#2a3b5c", highlightTint: "#ffd6a0", splitTone: 0.3,
     sun: 1, stars: 0, clouds: 0.42, cloudColor: "#ffb784",
@@ -172,7 +168,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#27345a", fogDensity: 0.014, fogFalloff: 0.06,
     uplightColor: "#ffcf94", uplights: 1.3,
     interior: 2.6,
-    bloom: 0.55, bloomRadius: 0.7, bloomThreshold: 0.7,
     contrast: 1.05, saturation: 1.1, vignette: 0.36, grain: 0.035,
     temperature: -0.08, shadowTint: "#10204a", highlightTint: "#ffc890", splitTone: 0.35,
     sun: 0, stars: 0.12, clouds: 0.28, cloudColor: "#8a7aa8",
@@ -188,7 +183,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#0b101d", fogDensity: 0.022, fogFalloff: 0.1,
     uplightColor: "#ffd28a", uplights: 0.9,
     interior: 3.2,
-    bloom: 0.75, bloomRadius: 0.8, bloomThreshold: 0.6,
     contrast: 1.18, saturation: 0.55, vignette: 0.55, grain: 0.06,
     temperature: -0.05, shadowTint: "#0a1830", highlightTint: "#fff0d8", splitTone: 0.2,
     sun: 0.35, stars: 0.9, clouds: 0.1, cloudColor: "#1e2638",
@@ -204,7 +198,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#7c848e", fogDensity: 0.005, fogFalloff: 0.04,
     uplightColor: "#ffd9a8", uplights: 0,
     interior: 0.8,
-    bloom: 0.12, bloomRadius: 0.4, bloomThreshold: 0.95,
     contrast: 1.06, saturation: 0.95, vignette: 0.25, grain: 0.02,
     temperature: 0, shadowTint: "#56657a", highlightTint: "#fff4e6", splitTone: 0.1,
     sun: 0, stars: 0, clouds: 1, cloudColor: "#a5adb6",
@@ -220,7 +213,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#1e2532", fogDensity: 0.026, fogFalloff: 0.06,
     uplightColor: "#ffd28a", uplights: 0.6,
     interior: 2.2,
-    bloom: 0.45, bloomRadius: 0.7, bloomThreshold: 0.7,
     contrast: 1.12, saturation: 0.7, vignette: 0.45, grain: 0.05,
     temperature: -0.1, shadowTint: "#142033", highlightTint: "#e8eefc", splitTone: 0.25,
     sun: 0, stars: 0, clouds: 1, cloudColor: "#343c48",
@@ -236,7 +228,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#a8c2e0", fogDensity: 0.0028, fogFalloff: 0.03,
     uplightColor: "#ffd9a8", uplights: 0,
     interior: 0.7,
-    bloom: 0.14, bloomRadius: 0.45, bloomThreshold: 0.92,
     contrast: 1.12, saturation: 1.16, vignette: 0.24, grain: 0.015,
     temperature: 0.03, shadowTint: "#3d5a86", highlightTint: "#fff2dc", splitTone: 0.18,
     sun: 1.2, stars: 0, clouds: 0.36, cloudColor: "#ffffff",
@@ -252,7 +243,6 @@ export const MOODS: Record<Mood, Look> = {
     fogColor: "#23103a", fogDensity: 0.02, fogFalloff: 0.07,
     uplightColor: "#ff4fd8", uplights: 1.4,
     interior: 3,
-    bloom: 0.9, bloomRadius: 0.8, bloomThreshold: 0.55,
     contrast: 1.12, saturation: 1.25, vignette: 0.5, grain: 0.045,
     temperature: -0.06, shadowTint: "#1a0a3a", highlightTint: "#ffd0f4", splitTone: 0.35,
     sun: 0, stars: 0.3, clouds: 0.18, cloudColor: "#4a2060",
@@ -759,9 +749,6 @@ export class Studio {
     this.onInterior(L.interior);
 
     const p = this.post;
-    p.bloom.strength = L.bloom;
-    p.bloom.radius = L.bloomRadius;
-    p.bloom.threshold = L.bloomThreshold;
     const g = p.gradeUniforms;
     g.uContrast.value = L.contrast;
     g.uSaturation.value = L.saturation;
@@ -931,9 +918,6 @@ export class Studio {
   addGradeGui(f: GUI): void {
     const L = this.look;
     const ch = () => this.touch();
-    f.add(L, "bloom", 0, 2, 0.01).name("bloom").onChange(ch).listen();
-    f.add(L, "bloomRadius", 0, 1.5, 0.01).name("bloom radius").onChange(ch).listen();
-    f.add(L, "bloomThreshold", 0, 1.5, 0.01).name("bloom threshold").onChange(ch).listen();
     f.add(L, "contrast", 0.7, 1.6, 0.01).name("contrast").onChange(ch).listen();
     f.add(L, "saturation", 0, 2, 0.01).name("saturation").onChange(ch).listen();
     f.add(L, "temperature", -0.5, 0.5, 0.01).name("white balance").onChange(ch).listen();

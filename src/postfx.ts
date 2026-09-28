@@ -1,6 +1,6 @@
 /**
  * Cinematic post stack:
- *   Render → GTAO (ambient occlusion) → Depth of Field → Bloom
+ *   Render → GTAO (ambient occlusion) → Depth of Field
  *          → tone map / sRGB (OutputPass) → Film grade
  *
  * - GTAO restores the contact shadowing the .blend materials got from their
@@ -18,7 +18,6 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
@@ -116,7 +115,6 @@ export class PostFX {
   readonly composer: EffectComposer;
   readonly ao: SelectiveGTAOPass;
   readonly bokeh: BokehPass;
-  readonly bloom: UnrealBloomPass;
   readonly grade: ShaderPass;
   /** letterbox target aspect (0 = off), eased in/out */
   letterbox = 0;
@@ -125,8 +123,8 @@ export class PostFX {
 
   constructor(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera) {
     const size = renderer.getDrawingBufferSize(new Vector2());
-    // a page opened in a hidden tab reports 0×0 — passes built at zero size never
-    // recover (bloom mips), so start from a sane size; setSize() corrects it
+    // a page opened in a hidden tab reports 0×0 — start the passes from a sane
+    // size; setSize() corrects it
     if (!size.x || !size.y) size.set(1280, 720);
     // multisampled HDR target keeps edges clean through the stack
     const rt = new WebGLRenderTarget(size.x, size.y, { type: HalfFloatType, samples: 4 });
@@ -142,9 +140,6 @@ export class PostFX {
     this.bokeh = new BokehPass(scene, camera, { focus: 40, aperture: 0.0008, maxblur: 0.008 });
     this.bokeh.enabled = false;
     this.composer.addPass(this.bokeh);
-
-    this.bloom = new UnrealBloomPass(new Vector2(size.x, size.y), 0.3, 0.6, 0.85);
-    this.composer.addPass(this.bloom);
 
     this.composer.addPass(new OutputPass()); // tone mapping + sRGB
 
@@ -162,7 +157,6 @@ export class PostFX {
 
   setSize(w: number, h: number): void {
     this.composer.setSize(w, h);
-    this.bloom.resolution.set(w, h);
   }
 
   render(dt: number): void {
