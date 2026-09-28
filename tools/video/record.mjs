@@ -72,7 +72,7 @@ await page.evaluate(k => new Promise(res => { window.__building(k).then(res); })
 await page.evaluate(() => window.__orbit(false));
 if (story.overlay === false) {
   // a bare panel: the split-screen compositor draws the graphics
-  await page.addStyleTag({ content: ".lil-gui, #busy, #preloader { display: none !important; }" });
+  await page.addStyleTag({ content: ".lil-gui, #busy, #preloader, #contact { display: none !important; }" });
   await page.evaluate(() => { window.__ov = () => {}; });
 } else await page.evaluate(installOverlay, story.theme);
 await page.evaluate(() => {

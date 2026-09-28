@@ -10,7 +10,7 @@
 /** runs in the page */
 export function installOverlay(theme) {
   const css = `
-  .lil-gui, #busy, #preloader { display: none !important; }
+  .lil-gui, #busy, #preloader, #contact { display: none !important; }
   #ov { position: fixed; inset: 0; pointer-events: none; z-index: 50; font-family: Bahnschrift, "Microsoft YaHei", "Segoe UI", sans-serif;
         color: #fff; -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
   #ov * { box-sizing: border-box; }

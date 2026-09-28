@@ -23,10 +23,12 @@ import { disposeNycGroup } from "./nyc/render";
 import { nycSpace } from "./nyc/shadergraph";
 import { BusyPill, nextFrame, Preloader, trackNetwork } from "./preloader";
 import { FrenchStreet } from "./street";
+import { ContactCard } from "./contact";
 
 // the loading screen is up from the first frame (index.html); the app fills it in
 const preloader = new Preloader();
 const busy = new BusyPill();
+const contact = new ContactCard();
 
 const app = document.getElementById("app")!;
 const renderer = new WebGLRenderer({ antialias: false, powerPreference: "high-performance" }); // MSAA lives in the composer
@@ -80,6 +82,8 @@ const graphLoading: Partial<Record<GraphKind, Promise<GraphBuilding>>> = {};
 const currentGraph = (): GraphBuilding | null => (which.building === "French" ? null : graphs[which.building] ?? null);
 /** the city's architecture follows the building */
 const FLAVOR: Record<BuildingKind, Flavor> = { French: "paris", "New York": "nyc", Chinese: "asia" };
+/** each city's accent (the videos' own, tools/video/stories.mjs): the contact card takes it */
+const ACCENT: Record<BuildingKind, string> = { French: "#e2c08d", "New York": "#ff7a45", Chinese: "#ff4d4d" };
 /** stage / shot bounds of the building currently shown (+ where its sidewalk ends) */
 function currentSize(): StageBounds {
   const g = currentGraph();
@@ -448,6 +452,7 @@ async function prepareGraph(kind: GraphKind): Promise<GraphBuilding> {
  */
 async function switchBuilding(): Promise<void> {
   const kind = which.building;
+  contact.setAccent(ACCENT[kind]);
   fBuild.show(kind === "French");
   fInt.show(kind === "French");
   for (const [k, f] of Object.entries(graphFolders)) f.show(k === kind);
@@ -768,6 +773,7 @@ async function init(): Promise<void> {
   await new Promise(r => setTimeout(r, 400));
   goShot(opening, 4.5);
   await reveal;
+  contact.reveal();
   devWindow.__ready = true;
 }
 
