@@ -14,6 +14,14 @@
   --contact-paper: rgba(250, 251, 252, .94); /* opaque enough for a neon sign behind it */
   --contact-shadow: 0 12px 34px rgba(30, 40, 55, .14);
   --contact-mono: ui-monospace, "SF Mono", Consolas, monospace;
+  /* the source link's gold: fixed, not the city's accent */
+  --contact-gold: #d4a53c;
+  --contact-gold-light: #f6dc8a;
+  --contact-gold-deep: #a8781f;
+  --contact-gold-ink: #5e4108;
+  --contact-gold-paper: linear-gradient(135deg, #fffaf0, #fbeecb);
+  --contact-gold-edge: linear-gradient(120deg, var(--contact-gold-deep), var(--contact-gold-light) 35%,
+    var(--contact-gold) 60%, var(--contact-gold-deep));
 
   position: fixed;
   right: 15px; /* the lil-gui column's edge, so the two read as one column */
@@ -337,6 +345,60 @@ html body > .lil-gui.autoPlace {
   color: var(--contact-accent-ink);
 }
 
+/* the source code: gold leaf on a gold edge, with a sheen passing now and then */
+.contact__link--code {
+  position: relative;
+  overflow: hidden;
+  border-color: transparent;
+  background: var(--contact-gold-paper) padding-box, var(--contact-gold-edge) border-box;
+  box-shadow: 0 6px 18px -12px rgba(168, 120, 31, .8);
+}
+
+.contact__link--code:hover,
+.contact__link--code:focus-visible {
+  background: linear-gradient(135deg, #fffdf6, #fdf2d6) padding-box, var(--contact-gold-edge) border-box;
+  box-shadow: 0 8px 22px -10px rgba(190, 140, 40, .8);
+}
+
+.contact__link--code .contact__icon {
+  border-color: transparent;
+  background: linear-gradient(145deg, var(--contact-gold-light), var(--contact-gold) 55%, var(--contact-gold-deep));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55);
+  color: var(--contact-gold-ink);
+}
+
+.contact__link--code .contact__link-text b {
+  color: var(--contact-gold-ink);
+}
+
+.contact__link--code .contact__link-text em {
+  color: #9a7424;
+}
+
+.contact__link--code .contact__go {
+  color: var(--contact-gold-deep);
+  opacity: .8;
+}
+
+.contact__link--code::after,
+.contact__code-pill::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .8), transparent);
+  transform: translateX(-160%) skewX(-18deg);
+  animation: contact-sheen 6s ease-in-out 1.5s infinite;
+  pointer-events: none;
+}
+
+@keyframes contact-sheen {
+  0%, 70% { transform: translateX(-160%) skewX(-18deg); }
+  100% { transform: translateX(360%) skewX(-18deg); }
+}
+
 /* ---- collapse ---- */
 
 .contact__toggle {
@@ -444,10 +506,61 @@ html body > .lil-gui.autoPlace {
   transform: translate(0, -50%);
 }
 
+/* the source link, out beside the portrait: same place as the label above,
+   which takes over while the tile is hovered */
+.contact__code-pill {
+  display: none;
+}
+
+.contact-wrap.is-collapsed .contact__code-pill {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 10px);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px 8px 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--contact-gold-paper) padding-box, var(--contact-gold-edge) border-box;
+  box-shadow: 0 6px 20px rgba(30, 40, 55, .12), 0 6px 18px -10px rgba(168, 120, 31, .8);
+  color: var(--contact-gold-ink);
+  font: 600 10px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  transform: translateY(-50%);
+  transition: opacity .22s ease, transform .22s ease, box-shadow .2s ease;
+}
+
+.contact__code-pill svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.contact-wrap.is-collapsed .contact__code-pill:hover,
+.contact-wrap.is-collapsed .contact__code-pill:focus-visible {
+  outline: none;
+  transform: translate(-2px, -50%);
+  box-shadow: 0 8px 22px rgba(30, 40, 55, .14), 0 8px 22px -8px rgba(190, 140, 40, .9);
+}
+
+.contact-wrap.is-collapsed .contact:hover ~ .contact__code-pill,
+.contact-wrap.is-collapsed .contact:has(.contact__toggle:focus-visible) ~ .contact__code-pill {
+  opacity: 0;
+  transform: translate(-8px, -50%);
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .contact__portrait::before,
   .contact__rule > b,
-  .contact__status i {
+  .contact__status i,
+  .contact__link--code::after,
+  .contact__code-pill::after {
     animation: none;
   }
   .contact-wrap.is-ready {

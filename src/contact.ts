@@ -1,12 +1,14 @@
 /**
  * The author card, bottom right: who built this, the "available for work"
- * status, and the two links that matter — the feed the work is posted to and
- * the studio site.
+ * status, and the links that matter — the source code, the feed the work is
+ * posted to and the studio site.
  *
  * Styled like the rest of the app's chrome (the preloader, the busy pill):
  * frosted white, hairlines, tracked-out capitals. The ring around the portrait
  * takes the accent of the building on the stage, so the card follows the city
- * rather than a fixed brand colour.
+ * rather than a fixed brand colour. The source link is the exception: it is
+ * gold whatever the city, and stays out as a pill when the card is collapsed
+ * (the default on phones), so the code is always one tap away.
  *
  * The lil-gui column hangs from the top-right corner and can grow down into
  * this one; the card keeps its height in `--contact-clear` and the column's
@@ -17,6 +19,21 @@ import "./contact.css";
 
 const SITE_URL = "https://chirostudio.xyz";
 const X_URL = "https://x.com/chirovisuals";
+const REPO_URL = "https://github.com/achrefelouafi/ProdceduralBuildingsThreeJS";
+
+/** GitHub's mark (Octicons mark-github, 24 box) */
+const ICON_GITHUB = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+    <path d="M12 1C5.923 1 1 5.923 1 12c0 4.867 3.149 8.979 7.521 10.436.55.096.756-.233.756-.522
+      0-.262-.013-1.128-.013-2.049-2.764.509-3.479-.674-3.699-1.292-.124-.317-.66-1.293-1.127-1.554
+      -.385-.207-.936-.715-.014-.729.866-.014 1.485.797 1.691 1.128.99 1.663 2.571 1.196 3.204.907
+      .096-.715.385-1.196.701-1.471-2.448-.275-5.005-1.224-5.005-5.432 0-1.196.426-2.186 1.128-2.956
+      -.111-.275-.496-1.402.11-2.915 0 0 .921-.288 3.024 1.128a10.193 10.193 0 0 1 2.75-.371
+      c.936 0 1.871.123 2.75.371 2.104-1.43 3.025-1.128 3.025-1.128.605 1.513.221 2.64.111 2.915
+      .701.77 1.127 1.747 1.127 2.956 0 4.222-2.571 5.157-5.019 5.432.399.344.743 1.004.743 2.035
+      0 1.471-.014 2.654-.014 3.025 0 .289.206.632.756.522C19.851 20.979 23 16.854 23 12
+      c0-6.077-4.922-11-11-11Z"/>
+  </svg>`;
 
 /** X, from the official mark, in a 24 box so it sits on the pixel grid at 13px */
 const ICON_X = `
@@ -74,10 +91,16 @@ const MARKUP = `
       </p>
 
       <div class="contact__links">
+        ${link(REPO_URL, "contact__link--code", ICON_GITHUB, "Get the source code", "Open source &middot; MIT &middot; GitHub")}
         ${link(X_URL, "contact__link--x", ICON_X, "@chirovisuals", "Work in motion, daily")}
         ${link(SITE_URL, "contact__link--site", ICON_SITE, "chirostudio.xyz", "Portfolio &amp; contact")}
       </div>
     </div>
+
+    <a class="contact__code-pill" href="${REPO_URL}" target="_blank" rel="noopener noreferrer"
+      aria-label="Get the source code on GitHub">
+      ${ICON_GITHUB}<span>Get the code</span>
+    </a>
   </aside>`;
 
 const STORE_KEY = "chiro.contact.collapsed";

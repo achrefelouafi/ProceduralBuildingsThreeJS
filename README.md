@@ -1,5 +1,7 @@
 # ProdceduralBuildingsThreeJS
 
+![The configurator: the French building in the city, with the GUI](docs/screenshots/app.jpg)
+
 A web configurator for procedural buildings ported from Blender geometry nodes,
 standing in a procedural city drawn as an architectural massing model, under a
 cinematic lighting set. The **🏙 building** selector at the top of the GUI
@@ -11,6 +13,10 @@ switches between:
 - **Chinese**: the corner apartment building with shops, enclosed balconies,
   AC units, laundry and a rooftop sign from `CN_ApartmentBuilding.blend`,
   evaluated live the same way (see [Chinese apartment building](#chinese-apartment-building)).
+
+| French | New York | Chinese |
+| --- | --- | --- |
+| ![The Haussmann-style French building](docs/screenshots/paris.jpg) | ![The New York corner building](docs/screenshots/new-york.jpg) | ![The Chinese apartment building](docs/screenshots/chinese.jpg) |
 
 The French building is ported from the geometry-nodes setup in `FrenchBuilding.blend`:
 
@@ -177,6 +183,8 @@ architectural massing model: white roads and sidewalks, and plain white volumes
 (one per lot; towers get a podium and a setback). No greenery, cars or street
 furniture: the building on its paved forecourt is the only detailed thing.
 
+![The New York building in its city, from above](docs/screenshots/city.jpg)
+
 - **It follows the building.** The hero block is the footprint + its sidewalk +
   a paved forecourt (none when the building brings its own sidewalk: the
   streets start at its curb); a street grid wraps it, with block sizes drawn
@@ -227,6 +235,12 @@ zenith gradient with a glow on the light source, a sun / moon disk, stars, a
 drifting cloud deck) that melts into the haze, the city's roads as the floor,
 and the stone plinth / site paving under the building (only where the building
 brings no sidewalk of its own).
+
+| Golden Hour | Blue Hour | Neon Night |
+| --- | --- | --- |
+| ![Golden Hour, street level](docs/screenshots/golden-hour.jpg) | ![Blue Hour](docs/screenshots/blue-hour.jpg) | ![Neon Night](docs/screenshots/neon-night.jpg) |
+| **Storm + rain** | **Blue Hour + snow** | **Facade detail** |
+| ![Storm with rain, street level](docs/screenshots/rain.jpg) | ![Blue Hour with snow](docs/screenshots/snow.jpg) | ![Facade detail at golden hour](docs/screenshots/facade-detail.jpg) |
 
 - **Moods**: *Architectural* (the default: soft, bright daylight on the white
   model, Khronos PBR Neutral tone mapping so whites stay white), *Studio*,
@@ -362,6 +376,15 @@ face centers, UVMap and Col with Blender's. It prints
 `node tools/nyc/screenshot_nyc.mjs <url> <outDir> [shot | cam=px,py,pz,tx,ty,tz] [mood] [json params]`
 takes headless screenshots of the New York building, and
 `node tools/cn/screenshot_cn.mjs` (same arguments) of the Chinese building.
+
+The README screenshots in `docs/screenshots/` come from a production build
+(no dev server; the shot list is in the script):
+
+```sh
+npx vite build --outDir <dist>
+node tools/readme_shots.mjs <dist>                              # all of them
+node tools/readme_shots.mjs <dist> docs/screenshots snow rain   # some of them
+```
 
 ## Showcase videos
 
