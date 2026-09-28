@@ -1,4 +1,4 @@
-# ProdceduralBuildingsThreeJS
+# ProceduralBuildingsThreeJS
 
 ![The configurator: the French building in the city, with the GUI](docs/screenshots/app.jpg)
 

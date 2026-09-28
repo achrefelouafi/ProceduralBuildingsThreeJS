@@ -19,7 +19,7 @@ import "./contact.css";
 
 const SITE_URL = "https://chirostudio.xyz";
 const X_URL = "https://x.com/chirovisuals";
-const REPO_URL = "https://github.com/achrefelouafi/ProdceduralBuildingsThreeJS";
+const REPO_URL = "https://github.com/achrefelouafi/ProceduralBuildingsThreeJS";
 
 /** GitHub's mark (Octicons mark-github, 24 box) */
 const ICON_GITHUB = `
