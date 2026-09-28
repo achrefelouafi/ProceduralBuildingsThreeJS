@@ -28,6 +28,7 @@
   bottom: 15px;
   z-index: 20; /* under the busy pill and the GUI */
   width: 284px;
+  max-width: calc(100vw - 30px);
   color: var(--contact-ink);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -464,8 +465,10 @@ html body > .lil-gui.autoPlace {
   border-radius: 50%;
 }
 
-.contact-wrap.is-collapsed .contact:hover {
-  transform: scale(1.06);
+@media (hover: hover) {
+  .contact-wrap.is-collapsed .contact:hover {
+    transform: scale(1.06);
+  }
 }
 
 .contact-wrap.is-collapsed .contact__toggle {
@@ -500,10 +503,18 @@ html body > .lil-gui.autoPlace {
   pointer-events: none;
 }
 
-.contact-wrap.is-collapsed .contact:hover .contact__toggle::after,
+/* hover only where there is one: a phone keeps :hover on the tile after a
+   tap, which would leave the label up and the source pill hidden */
 .contact-wrap.is-collapsed .contact__toggle:focus-visible::after {
   opacity: 1;
   transform: translate(0, -50%);
+}
+
+@media (hover: hover) {
+  .contact-wrap.is-collapsed .contact:hover .contact__toggle::after {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
 }
 
 /* the source link, out beside the portrait: same place as the label above,
@@ -548,11 +559,37 @@ html body > .lil-gui.autoPlace {
   box-shadow: 0 8px 22px rgba(30, 40, 55, .14), 0 8px 22px -8px rgba(190, 140, 40, .9);
 }
 
-.contact-wrap.is-collapsed .contact:hover ~ .contact__code-pill,
 .contact-wrap.is-collapsed .contact:has(.contact__toggle:focus-visible) ~ .contact__code-pill {
   opacity: 0;
   transform: translate(-8px, -50%);
   pointer-events: none;
+}
+
+@media (hover: hover) {
+  .contact-wrap.is-collapsed .contact:hover ~ .contact__code-pill {
+    opacity: 0;
+    transform: translate(-8px, -50%);
+    pointer-events: none;
+  }
+}
+
+/* touch: no hover to reveal the fold button, so it stays out, sized for a thumb */
+@media (hover: none) {
+  .contact__toggle {
+    opacity: 1;
+    border-color: var(--contact-hair);
+    background: #fff;
+  }
+}
+
+@media (pointer: coarse) {
+  .contact__toggle {
+    top: 6px;
+    right: 6px;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -579,13 +616,21 @@ html body > .lil-gui.autoPlace {
   }
 }
 
-/* narrow window: it opens as the portrait alone (ROOM in contact.ts), so these
-   only apply once someone has opened it by hand */
-@media (max-width: 760px) {
-  .contact-wrap {
-    right: 12px;
-    bottom: 12px;
-    width: 220px;
+/* very short window (a phone on its side): opened by hand, the card keeps to
+   the essentials so the GUI keeps some room above it */
+@media (max-height: 600px) {
+  .contact {
+    padding: 12px;
+  }
+  .contact__rule {
+    margin: 10px -12px 0;
+  }
+  .contact__links {
+    margin-top: 10px;
+    gap: 5px;
+  }
+  .contact__link {
+    padding: 5px 10px 5px 6px;
   }
   .contact__link-text em {
     display: none;
@@ -597,5 +642,22 @@ html body > .lil-gui.autoPlace {
   }
   .contact__name {
     font-size: 13px;
+  }
+}
+
+/* narrow window: it opens as the portrait alone (ROOM in contact.ts); opened by
+   hand it keeps its full width, which a phone has room for */
+@media (max-width: 760px) {
+  .contact-wrap {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
+  }
+}
+
+/* narrower than the card: the sub-labels go before they wrap */
+@media (max-width: 308px) {
+  .contact__link-text em {
+    display: none;
   }
 }
